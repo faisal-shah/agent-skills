@@ -1,0 +1,26 @@
+# ngspice outputs
+*.raw
+*.log
+
+# LaTeX build artifacts
+*.aux
+*.pdf
+*.png
+*.synctex.gz
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Editor
+*.swp
+*~
+tags
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Memory skill working files
+.memory/
