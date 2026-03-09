@@ -11,7 +11,7 @@
 - **Always test before reporting completion:**
   - Run existing test suites after changes (mandatory)
   - Smoke test GUIs by loading real data and exercising features
-  - Test on real datasets when available (e.g. sample logs in `~/temp/`)
+  - Test on real datasets or sample logs when available
   - For Cython/Python hybrid codebases, verify parity between implementations
 - **shellcheck deliverable shell scripts:** Run `shellcheck` on every `.sh` file created or edited as a project artifact (committed scripts, templates, generated outputs). Fix all warnings. Do NOT lint ephemeral one-liners or inline bash used during task execution.
 - **Profile before optimizing:** Use real data to identify bottlenecks. When performance is critical, target dramatic speedups (10-100x).
@@ -37,7 +37,7 @@
 
 ## File Management
 
-- Use `/tmp` for any temporary files, cloned repos, or scratch work. Never place them in the home directory or working directory.
+- Use the system temp directory (`/tmp` on Linux/macOS, `$env:TEMP` on Windows) for any temporary files, cloned repos, or scratch work. Never place them in the home directory or working directory.
 - **Git worktrees:** When you need to checkout a different branch without switching the current branch, use `git worktree add /tmp/<worktree-name> <branch>` instead of cloning or switching branches.
 - **WSL/Windows paths:** This environment runs in WSL. Windows host drives are accessible via the Plan 9 mount at `/mnt/<drive_letter>/`. When the user references a Windows-style path like `D:\workdata\temp\ai reading`, translate it to `/mnt/d/workdata/temp/ai reading`. Always use the `/mnt/` form when accessing files on the Windows host.
 
@@ -68,4 +68,3 @@ The Azure DevOps MCP server is disabled by default to reduce context overhead. I
 - **Any mention of:** "ADO", "Azure DevOps", "Azure Boards", "Azure Repos", "Azure Pipelines", or your organization's ADO instance
 
 When asking the user to enable it, explain: "The Azure DevOps MCP server is disabled by default. Run `/mcp enable azure_devops` to enable it for this session, then repeat your request."
-
