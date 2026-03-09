@@ -11,7 +11,7 @@
 - **Always test before reporting completion:**
   - Run existing test suites after changes (mandatory)
   - Smoke test GUIs by loading real data and exercising features
-  - Test on real datasets: `~/temp/busmonlogs/`, `~/temp/cankinglogs/`
+  - Test on real datasets when available (e.g. sample logs in `~/temp/`)
   - For Cython/Python hybrid codebases, verify parity between implementations
 - **shellcheck deliverable shell scripts:** Run `shellcheck` on every `.sh` file created or edited as a project artifact (committed scripts, templates, generated outputs). Fix all warnings. Do NOT lint ephemeral one-liners or inline bash used during task execution.
 - **Profile before optimizing:** Use real data to identify bottlenecks. When performance is critical, target dramatic speedups (10-100x).
@@ -65,7 +65,7 @@ The Azure DevOps MCP server is disabled by default to reduce context overhead. I
 - **Pull requests:** Creating, reviewing, listing, or managing Azure DevOps PRs (not GitHub PRs)
 - **Repositories:** Browsing Azure Repos, branches, commits, or code search in Azure DevOps
 - **Pipelines:** Triggering, viewing, or managing Azure DevOps build/release pipelines
-- **Any mention of:** "ADO", "Azure DevOps", "Azure Boards", "Azure Repos", "Azure Pipelines", or HAL-Sperry organization
+- **Any mention of:** "ADO", "Azure DevOps", "Azure Boards", "Azure Repos", "Azure Pipelines", or your organization's ADO instance
 
 When asking the user to enable it, explain: "The Azure DevOps MCP server is disabled by default. Run `/mcp enable azure_devops` to enable it for this session, then repeat your request."
 
