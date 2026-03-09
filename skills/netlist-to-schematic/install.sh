@@ -4,10 +4,11 @@ set -euo pipefail
 SKILL_NAME="netlist-to-schematic"
 
 usage() {
-    echo "Usage: $0 [--uninstall] <skills-directory>"
+    echo "Usage: $0 [--uninstall] [skills-directory]"
     echo ""
-    echo "Install:    $0 ~/.copilot/skills"
-    echo "Uninstall:  $0 --uninstall ~/.copilot/skills"
+    echo "Install:    $0                            # defaults to ~/.copilot/skills"
+    echo "Install:    $0 /path/to/skills"
+    echo "Uninstall:  $0 --uninstall"
     echo ""
     echo "Creates <skills-directory>/$SKILL_NAME/ with SKILL.md and scripts/."
     exit 1
@@ -24,7 +25,7 @@ for arg in "$@"; do
     esac
 done
 
-[ -z "$SKILLS_DIR" ] && usage
+[ -z "$SKILLS_DIR" ] && SKILLS_DIR="$HOME/.copilot/skills"
 
 TARGET="$SKILLS_DIR/$SKILL_NAME"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

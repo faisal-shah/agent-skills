@@ -2,10 +2,11 @@
 set -euo pipefail
 
 usage() {
-    echo "Usage: $0 [--uninstall] <skills-directory>"
+    echo "Usage: $0 [--uninstall] [skills-directory]"
     echo ""
-    echo "Install all skills:    $0 ~/.copilot/skills"
-    echo "Uninstall all skills:  $0 --uninstall ~/.copilot/skills"
+    echo "Install all skills:    $0                        # defaults to ~/.copilot/skills"
+    echo "Install to custom dir: $0 /path/to/skills"
+    echo "Uninstall all skills:  $0 --uninstall"
     echo ""
     echo "Installs: circuit-sim, netlist-to-schematic, memory"
     exit 1
@@ -22,7 +23,7 @@ for arg in "$@"; do
     esac
 done
 
-[ -z "$SKILLS_DIR" ] && usage
+[ -z "$SKILLS_DIR" ] && SKILLS_DIR="$HOME/.copilot/skills"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

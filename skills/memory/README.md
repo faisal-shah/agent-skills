@@ -16,15 +16,20 @@ that survive context compactions and session restarts.
 
 ## Installation
 
+**Linux / macOS / WSL:**
+
 ```bash
-# From the monorepo root
-./install.sh ~/.copilot/skills              # installs all skills
+./skills/memory/install.sh                      # defaults to ~/.copilot/skills
+./skills/memory/install.sh /path/to/skills      # custom path
+./skills/memory/install.sh --uninstall           # uninstall
+```
 
-# Or just this skill
-./skills/memory/install.sh ~/.copilot/skills
+**Windows (PowerShell):**
 
-# Uninstall
-./skills/memory/install.sh --uninstall ~/.copilot/skills
+```powershell
+.\skills\memory\install.ps1                             # defaults to ~/.copilot/skills
+.\skills\memory\install.ps1 -SkillsDir C:\my\skills     # custom path
+.\skills\memory\install.ps1 -Uninstall                   # uninstall
 ```
 
 ## Prerequisites

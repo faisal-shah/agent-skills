@@ -14,20 +14,31 @@ schematic drawing, and persistent memory across sessions.
 
 ## Installation
 
-Install all skills at once, or pick individual ones:
+Install all skills at once, or pick individual ones. All scripts default to
+`~/.copilot/skills` if no path is provided.
 
 ```bash
-# All skills
-./install.sh ~/.copilot/skills
+# All skills (defaults to ~/.copilot/skills)
+./install.sh
 
 # Individual skill
-./skills/circuit-sim/install.sh ~/.copilot/skills
-./skills/netlist-to-schematic/install.sh ~/.copilot/skills
-./skills/memory/install.sh ~/.copilot/skills
+./skills/circuit-sim/install.sh
+./skills/netlist-to-schematic/install.sh
+./skills/memory/install.sh
+
+# Custom path
+./install.sh /path/to/skills
 
 # Uninstall
-./install.sh --uninstall ~/.copilot/skills
-./skills/circuit-sim/install.sh --uninstall ~/.copilot/skills
+./install.sh --uninstall
+```
+
+The **memory** skill also includes a PowerShell installer for native Windows:
+
+```powershell
+.\skills\memory\install.ps1                         # defaults to ~/.copilot/skills
+.\skills\memory\install.ps1 -SkillsDir C:\my\skills
+.\skills\memory\install.ps1 -Uninstall
 ```
 
 Supported skill directories:
