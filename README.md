@@ -62,6 +62,7 @@ Supported skill directories:
 agent-skills/
 ├── README.md               ← this file
 ├── AGENTS.md               ← AI context for developing skills
+├── copilot-instructions.md ← user-level Copilot agent instructions (~/.copilot/copilot-instructions.md)
 ├── install.sh              ← install all skills at once
 ├── LICENSE                 ← MIT
 └── skills/
