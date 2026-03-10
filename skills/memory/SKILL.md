@@ -75,8 +75,9 @@ The user can override any axis.
   .memory/
     config.yml           ← records chosen strategies so update/reset know what to do
     plan.md              ← frozen original plan (reference, don't edit)
+    reference.md         ← (optional) large reference material extracted from plan
     context.md           ← project overview, architecture, tech stack, key decisions
-    progress.md          ← task list with statuses, current focus, next steps
+    progress.md          ← task list with checkpoints, current focus, next steps
     lessons.md           ← gotchas, patterns discovered, decisions with rationale
 ```
 
@@ -128,9 +129,9 @@ The primary command. Sets up persistent memory files from the current session's 
    mkdir -p .memory
    ```
    - Write `.memory/config.yml` with the chosen strategies and date.
-   - Copy the full plan verbatim to `.memory/plan.md` (frozen reference).
+   - Copy the plan to `.memory/plan.md` (frozen reference). **If the plan exceeds ~150 lines**, extract detailed reference material (pin tables, API specs, hardware maps) into `.memory/reference.md` and keep only the task list, key decisions, and architecture overview in `plan.md`.
    - Extract project context (overview, architecture, tech stack, goals) into `.memory/context.md`.
-   - Extract the task list into `.memory/progress.md`, formatted as a trackable checklist with status markers.
+   - Extract the task list into `.memory/progress.md`. Include the mandatory preamble (see format below). The preamble establishes that updating memory is part of completing each task — not a separate step.
    - Create `.memory/lessons.md` with empty template sections.
 
 6. **Create AGENTS.md** with the memory loader block (see template below). If AGENTS.md already exists, **append** the memory section rather than overwriting — the file may contain other project-specific instructions.
@@ -149,12 +150,11 @@ The agent does this automatically after milestones, but the user can force it at
 
 **When to update (automatically, don't wait to be asked):**
 
-- After completing a task or subtask
+- After completing each task — **mandatory** (a task is not done until memory is updated)
 - After hitting and resolving a significant blocker
 - After making a key decision that changes approach
-- At minimum once per session, but prefer multiple small updates over one big dump
 
-**The goal:** if the session dies unexpectedly right now, a fresh agent should be able to read `.memory/` and pick up within minutes, not hours. There is **no pre-compaction hook** in Copilot CLI — auto-compaction at ~95% context gives no warning — so frequent updates are the only reliable safeguard.
+**The goal:** if the session dies right now, a fresh agent reads `.memory/` and picks up within minutes. There is **no pre-compaction hook** — auto-compaction at ~95% context gives no warning — so checkpointing after every task is the only reliable safeguard.
 
 **Steps:**
 
@@ -166,6 +166,7 @@ The agent does this automatically after milestones, but the user can force it at
    - Update current focus to reflect what's actively being worked on.
    - Add brief notes on partially-completed work (what's done, what remains).
    - Reorder/reprioritize next steps if needed.
+   - **Self-check:** if more than 3 tasks were completed since the last update, you are checkpointing too infrequently.
 5. Update `.memory/lessons.md` if any new gotchas or decisions arose.
 6. Update `.memory/context.md` only if architecture or tech stack changed.
 7. **If git is enabled**, commit:
@@ -189,7 +190,7 @@ When the agent has gone off the rails. Resets progress and lessons while keeping
 git tag memory-archive-$(date +%Y%m%d-%H%M%S)
 ```
 
-Reinitializes `.memory/progress.md` from the frozen plan and clears `.memory/lessons.md`. Context and config are preserved.
+Reinitializes `.memory/progress.md` from the frozen plan (with mandatory preamble) and clears `.memory/lessons.md`. Context and config are preserved.
 
 **If git is not enabled:** warn the user that the current state will be lost (no tag to fall back to), and ask for confirmation before proceeding.
 
@@ -217,6 +218,10 @@ Reinitializes `.memory/progress.md` from the frozen plan and clears `.memory/les
 
 ```markdown
 # Progress
+
+> **RULE: After completing each task, update this file and commit BEFORE starting
+> the next task. This is mandatory. Compaction can happen without warning —
+> every checkpoint may be your last.**
 
 ## Current Focus
 [What we're actively working on RIGHT NOW — most important section after compaction]
@@ -254,7 +259,7 @@ Reinitializes `.memory/progress.md` from the frozen plan and clears `.memory/les
 
 ### .memory/plan.md
 
-Verbatim copy of the original plan. **Never edit this file.** It's the reference for what was originally intended. Compare against `progress.md` to see drift.
+Copy of the original plan (large reference material extracted to `reference.md` if the plan exceeds ~150 lines). **Never edit this file.** It's the reference for what was originally intended. Compare against `progress.md` to see drift. Read only when you need to check original intent — don't load into context routinely.
 
 ## AGENTS.md Template
 
@@ -264,6 +269,15 @@ When creating AGENTS.md (or appending to an existing one), use this block:
 # Project Memory
 
 This project uses persistent memory files to maintain context across sessions and compactions.
+
+## ⚠️ Critical Rule — Checkpoint After Every Task
+
+After completing EACH task, you MUST:
+1. Update `.memory/progress.md` — mark the task done, update current focus
+2. Update `.memory/lessons.md` if any gotchas or decisions arose
+3. If git is enabled: `git add .memory/ && git commit -m "Update memory: <summary>"`
+
+Do this BEFORE starting the next task. No exceptions. A task is not "done" until memory is updated. Compaction can strike at any time with no warning — every checkpoint may be your last.
 
 ## On Session Start / After Compaction
 
@@ -277,14 +291,12 @@ Then pick up the next incomplete task from progress.md and continue working.
 
 ## Updating Memory
 
-Update `.memory/` files **frequently** — not just at session end. Update after:
+Update `.memory/` files after:
 
-- Completing a task or subtask
+- Completing any task (mandatory — see Critical Rule above)
 - Resolving a significant blocker
 - Making a key decision that changes approach
 - When the user says "update memory" or "save progress"
-
-**The goal:** if this session dies right now, a fresh agent reads `.memory/` and picks up in minutes.
 
 Steps:
 1. Read `.memory/config.yml` to check if git is enabled
@@ -300,19 +312,19 @@ Steps:
 There is **no pre-compaction hook** in Copilot CLI. Auto-compaction triggers at ~95% context usage with no warning and no callback. This means:
 
 - You CANNOT rely on saving state "just before" compaction — it may happen at any time.
-- The frequent-update strategy above is the **only** reliable mitigation.
+- Checkpointing after every task is the **only** reliable mitigation.
 - Treat every memory update as if it might be the last thing you do before losing context.
-- If the user manually runs `/compact`, they should say "save progress" first — but auto-compaction gives no such opportunity.
 
 ## Reference
 
-The original project plan is preserved in `.memory/plan.md` (read-only reference).
+The original project plan is preserved in `.memory/plan.md` (read-only reference). Only consult it when you need original intent or reference details — don't load routinely.
 ```
 
 ## Guidelines
 
+- **Checkpoint after EVERY task.** Not advice — a structural requirement. A task is not done until memory is updated and committed. The mandatory preamble in progress.md and the Critical Rule in AGENTS.md enforce this.
 - **Keep files concise.** Each file should be scannable in seconds. If progress.md exceeds ~80 lines, archive completed tasks to a dated section or trim them.
-- **progress.md changes most often.** Update after every milestone, not just at session end. Keep entries terse — status board, not journal.
+- **Cap plan.md at ~150 lines.** Extract large reference material (pin tables, API specs) into `.memory/reference.md`. The plan gets loaded into context — bloat costs tokens.
 - **Don't duplicate code.** Memory files describe *what* and *why*, not *how*. Never paste code blocks into memory files.
 - **Prune aggressively.** Old completed items, resolved gotchas, and superseded decisions should be trimmed.
 - **Commit memory updates (when git is enabled).** Git history IS your archive. Don't hoard old content — commit, then prune.

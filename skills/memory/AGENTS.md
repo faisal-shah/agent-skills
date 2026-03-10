@@ -17,9 +17,10 @@ which gets loaded into the AI's context when the skill triggers.
    The memory skill ensures the agent can resume from `.memory/` files without
    any context from the previous session.
 
-2. **Frequent updates, not just at session end** — The skill instructs agents to
-   checkpoint after each task, blocker resolution, or key decision. This
-   minimizes lost work when compaction or disconnection occurs.
+2. **Structural checkpoint enforcement** — Advisory "update frequently" instructions
+   don't work. The skill uses a mandatory preamble in progress.md and a Critical
+   Rule section leading AGENTS.md to make memory updates part of task completion
+   itself — a task isn't done until memory is updated.
 
 3. **Lean files** — `progress.md` should stay under ~80 lines. It gets loaded
    every session, so bloat costs tokens. Completed tasks become one-line
