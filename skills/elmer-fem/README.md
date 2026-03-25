@@ -40,9 +40,26 @@ transient setup, axisymmetric models, and ParaView post-processing.
 
 ## Prerequisites
 
-- **ElmerSolver** and **ElmerGrid**
-- A mesh generator such as **Gmsh** or **Salome**
-- **ParaView** for result inspection
+- **ElmerSolver** and **ElmerGrid** (required)
+- **Gmsh** or **Salome** for mesh generation (required)
+- **ParaView** for result inspection *(optional — GUI visualization tool, not invoked by the skill)*
+
+<details><summary><strong>Install prerequisites</strong></summary>
+
+**Windows:**
+```powershell
+# Elmer — download installer from https://www.elmerfem.org/blog/binaries/
+winget install --id=GMSH.GMSH             # Gmsh
+# ParaView (optional) — download from https://www.paraview.org/download/
+```
+
+**Linux / macOS / WSL:**
+```bash
+sudo apt install elmer gmsh               # Debian/Ubuntu
+sudo apt install paraview                  # optional
+# OR download from https://www.elmerfem.org/blog/binaries/ and https://gmsh.info/
+```
+</details>
 
 ## Quick Start
 

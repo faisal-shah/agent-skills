@@ -22,7 +22,7 @@ unfamiliar SIF from scratch.
 
 - `ElmerSolver` and `ElmerGrid` on `PATH`
 - A meshing tool: **Salome** for GUI-heavy workflows or **Gmsh** for scripting
-- `ParaView` for result inspection
+- **ParaView** *(optional)* — GUI tool for visual inspection of results; not invoked programmatically
 - Python 3.10+ if automating geometry, mesh conversion, or PVD generation
 
 ---

@@ -18,7 +18,7 @@ parse binary output, and plot results with matplotlib.
 
 ## Prerequisites
 
-- `ngspice` installed and on PATH (`ngspice --version` to verify)
+- `ngspice` installed and on `PATH` (`ngspice --version` to verify)
 - Python 3.10+ with `numpy` and `matplotlib` (use `uv run` with inline metadata)
 
 ---

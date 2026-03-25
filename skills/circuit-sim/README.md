@@ -43,9 +43,24 @@ publication-quality plots.
 
 ## Prerequisites
 
-- **ngspice** installed and on PATH ([ngspice.sourceforge.io](https://ngspice.sourceforge.io/))
+- **ngspice** installed and on `PATH`
 - **Python 3.10+** with `numpy` and `matplotlib`
 - **uv** recommended for running scripts (`uv run scripts/run_sim.py`)
+
+<details><summary><strong>Install ngspice</strong></summary>
+
+**Windows:**
+```powershell
+winget install --id=ngspice.ngspice       # if available via winget
+# OR download from https://ngspice.sourceforge.io/ and add Spice64\bin to PATH
+```
+
+**Linux / macOS / WSL:**
+```bash
+sudo apt install ngspice     # Debian/Ubuntu
+brew install ngspice          # macOS
+```
+</details>
 
 ## Quick Start
 

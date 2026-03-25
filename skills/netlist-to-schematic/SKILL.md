@@ -14,8 +14,8 @@ parsing the netlist through to the final PNG.
 
 ## Prerequisites
 
-- `pdflatex` with the `circuitikz` package installed
-- `pdftoppm` (from poppler-utils) for PDF→PNG conversion
+- `pdflatex` with the `circuitikz` package (MiKTeX on Windows, TeX Live on Linux)
+- `pdftoppm` (Poppler) for PDF→PNG conversion
 - Python 3.10+ and `uv` for running `scripts/compile_tex.py`
 
 ---

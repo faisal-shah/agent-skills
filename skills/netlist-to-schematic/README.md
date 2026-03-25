@@ -40,9 +40,24 @@ publication-quality **circuit schematic diagrams** using Circuitikz (LaTeX).
 
 ## Prerequisites
 
-- **pdflatex** with `circuitikz` package (TeX Live or similar)
-- **pdftoppm** (from `poppler-utils`) for PDF→PNG conversion
+- **pdflatex** with `circuitikz` package
+- **pdftoppm** (from Poppler) for PDF→PNG conversion
 - **Python 3.10+** and **uv** for running the compile script
+
+<details><summary><strong>Install prerequisites</strong></summary>
+
+**Windows:**
+```powershell
+winget install --id=MiKTeX.MiKTeX              # pdflatex (auto-installs circuitikz on first use)
+winget install --id=oschwartz10612.Poppler      # pdftoppm
+```
+
+**Linux / macOS / WSL:**
+```bash
+sudo apt install texlive-latex-extra texlive-pictures poppler-utils   # Debian/Ubuntu
+brew install mactex poppler                                            # macOS
+```
+</details>
 
 ## Quick Start
 
