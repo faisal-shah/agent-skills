@@ -49,6 +49,13 @@ Supported skill directories:
 | GitHub Copilot (project) | `.github/skills` |
 | OpenAI Codex | `~/.codex/skills` |
 
+The installer also copies **user-level instruction files** when installing to default directories:
+
+| Agent | Instructions file | Source |
+|-------|-------------------|--------|
+| GitHub Copilot | `~/.copilot/copilot-instructions.md` | `copilot-instructions.md` |
+| OpenAI Codex | `~/.codex/instructions.md` | `codex-instructions.md` |
+
 ## Prerequisites
 
 All skills need **Python 3.10+** and [**uv**](https://docs.astral.sh/uv/) (recommended script runner).
@@ -80,6 +87,7 @@ agent-skills/
 ├── README.md               ← this file
 ├── AGENTS.md               ← AI context for developing skills
 ├── copilot-instructions.md ← user-level Copilot agent instructions (~/.copilot/copilot-instructions.md)
+├── codex-instructions.md   ← user-level Codex agent instructions (~/.codex/instructions.md)
 ├── .gitattributes          ← line-ending rules (LF for .sh, CRLF for .ps1)
 ├── install.sh              ← install all skills (bash)
 ├── install.ps1             ← install all skills (PowerShell)

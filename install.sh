@@ -89,3 +89,27 @@ for skill_dir in "$SCRIPT_DIR"/skills/*/; do
         "$skill_install" "${PASSTHRU[@]}"
     fi
 done
+
+# Install user-level instructions files (unless using --skills-dir or --uninstall)
+if [ -z "$SKILLS_DIR" ] && [ "$UNINSTALL" = false ]; then
+    install_copilot_instr=false
+    install_codex_instr=false
+
+    if [ "$INSTALL_COPILOT" = true ] || { [ "$INSTALL_COPILOT" = false ] && [ "$INSTALL_CODEX" = false ]; }; then
+        install_copilot_instr=true
+    fi
+    if [ "$INSTALL_CODEX" = true ] || { [ "$INSTALL_COPILOT" = false ] && [ "$INSTALL_CODEX" = false ]; }; then
+        install_codex_instr=true
+    fi
+
+    if [ "$install_copilot_instr" = true ]; then
+        mkdir -p "$HOME/.copilot"
+        cp "$SCRIPT_DIR/copilot-instructions.md" "$HOME/.copilot/copilot-instructions.md"
+        echo "Installed copilot-instructions.md to $HOME/.copilot/"
+    fi
+    if [ "$install_codex_instr" = true ]; then
+        mkdir -p "$HOME/.codex"
+        cp "$SCRIPT_DIR/codex-instructions.md" "$HOME/.codex/instructions.md"
+        echo "Installed codex-instructions.md to $HOME/.codex/"
+    fi
+fi

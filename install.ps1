@@ -54,3 +54,24 @@ Get-ChildItem -Path (Join-Path $ScriptRoot "skills") -Directory | ForEach-Object
         & $installer @Passthru
     }
 }
+
+# Install user-level instructions files (unless using --SkillsDir or --Uninstall)
+if (-not $SkillsDir -and -not $Uninstall) {
+    $installCopilotInstr = $Copilot -or $All -or (-not $Copilot -and -not $Codex)
+    $installCodexInstr   = $Codex   -or $All -or (-not $Copilot -and -not $Codex)
+
+    if ($installCopilotInstr) {
+        $copilotDir = Join-Path $HOME ".copilot"
+        New-Item -ItemType Directory -Force -Path $copilotDir | Out-Null
+        Copy-Item (Join-Path $ScriptRoot "copilot-instructions.md") `
+                  (Join-Path $copilotDir "copilot-instructions.md") -Force
+        Write-Host "Installed copilot-instructions.md to $copilotDir"
+    }
+    if ($installCodexInstr) {
+        $codexDir = Join-Path $HOME ".codex"
+        New-Item -ItemType Directory -Force -Path $codexDir | Out-Null
+        Copy-Item (Join-Path $ScriptRoot "codex-instructions.md") `
+                  (Join-Path $codexDir "instructions.md") -Force
+        Write-Host "Installed codex-instructions.md to $codexDir"
+    }
+}
