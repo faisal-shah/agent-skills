@@ -17,22 +17,28 @@ publication-quality plots.
 | `scripts/run_sim.py` | **yes** | End-to-end sim runner with .meas/.step/UIC handling |
 | `README.md` | no | This file (repo documentation only) |
 | `AGENTS.md` | no | AI context for developing the skill itself |
+| `install.sh` | **yes** | Installs the skill into a skills directory (bash) |
+| `install.ps1` | **yes** | Installs the skill into a skills directory (PowerShell) |
 | `examples/` | no | Reference netlists for testing changes to the skill |
 
 ## Installation
 
-```bash
-# From the monorepo root
-./install.sh                               # installs all skills to ~/.copilot/skills and ~/.codex/skills
+**Linux / macOS / WSL:**
 
-# Or just this skill
+```bash
+./install.sh                               # installs all skills to ~/.copilot/skills and ~/.codex/skills
 ./skills/circuit-sim/install.sh            # install to both Copilot and Codex
 ./skills/circuit-sim/install.sh --copilot
-./skills/circuit-sim/install.sh --codex
-./skills/circuit-sim/install.sh --skills-dir .github/skills
-
-# Uninstall from both default user dirs
 ./skills/circuit-sim/install.sh --uninstall
+```
+
+**Windows (PowerShell):**
+
+```powershell
+.\install.ps1                               # installs all skills
+.\skills\circuit-sim\install.ps1            # install to both Copilot and Codex
+.\skills\circuit-sim\install.ps1 -Copilot
+.\skills\circuit-sim\install.ps1 -Uninstall
 ```
 
 ## Prerequisites

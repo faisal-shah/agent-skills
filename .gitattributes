@@ -1,0 +1,5 @@
+# Ensure shell scripts keep Unix line endings on all platforms.
+# Ensure PowerShell scripts keep Windows line endings.
+*.sh    text eol=lf
+*.ps1   text eol=crlf
+*.bat   text eol=crlf

@@ -41,9 +41,9 @@ AI's context at session start.
 
 ```bash
 # Run the example netlists through run_sim.py to verify nothing is broken:
-uv run scripts/run_sim.py examples/rc_lowpass.cir --plot /tmp/test_ac.png
-uv run scripts/run_sim.py examples/pulse_response.cir --plot /tmp/test_tran.png
-uv run scripts/run_sim.py examples/rc_sweep.cir --plot /tmp/test_sweep.png
+uv run scripts/run_sim.py examples/rc_lowpass.cir --plot test_ac.png
+uv run scripts/run_sim.py examples/pulse_response.cir --plot test_tran.png
+uv run scripts/run_sim.py examples/rc_sweep.cir --plot test_sweep.png
 ```
 
 ## Style

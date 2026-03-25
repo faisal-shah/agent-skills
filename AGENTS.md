@@ -64,10 +64,10 @@ Each skill's `AGENTS.md` describes how to test that skill. In general:
 
 ```bash
 # circuit-sim: run example netlists
-uv run skills/circuit-sim/scripts/run_sim.py skills/circuit-sim/examples/rc_lowpass.cir --plot /tmp/test.png
+uv run skills/circuit-sim/scripts/run_sim.py skills/circuit-sim/examples/rc_lowpass.cir --plot test.png
 
 # elmer-fem: install into a scratch skills directory
-./skills/elmer-fem/install.sh /tmp/skills-test
+./skills/elmer-fem/install.sh skills-test
 
 # netlist-to-schematic: compile a worked example
 uv run skills/netlist-to-schematic/scripts/compile_tex.py example.tex

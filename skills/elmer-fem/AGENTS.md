@@ -39,13 +39,17 @@ AI's context when the skill triggers.
 ## Testing Changes
 
 ```bash
-# Install only this skill
-./skills/elmer-fem/install.sh /tmp/skills-test
-test -f /tmp/skills-test/elmer-fem/SKILL.md
+# Install only this skill (bash)
+./skills/elmer-fem/install.sh skills-test
+test -f skills-test/elmer-fem/SKILL.md
 
-# Install the full monorepo
-./install.sh /tmp/all-skills-test
-test -f /tmp/all-skills-test/elmer-fem/SKILL.md
+# Install the full monorepo (bash)
+./install.sh all-skills-test
+test -f all-skills-test/elmer-fem/SKILL.md
+
+# Windows PowerShell equivalent
+.\skills\elmer-fem\install.ps1 -SkillsDir skills-test
+Test-Path skills-test\elmer-fem\SKILL.md
 ```
 
 Manual review:

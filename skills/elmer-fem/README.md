@@ -15,22 +15,27 @@ transient setup, axisymmetric models, and ParaView post-processing.
 | `SKILL.md` | **yes** | Main skill file loaded by the agent framework |
 | `README.md` | no | This file (repo documentation only) |
 | `AGENTS.md` | no | AI context for developing the skill itself |
-| `install.sh` | **yes** | Installs the skill into a skills directory |
+| `install.sh` | **yes** | Installs the skill into a skills directory (bash) |
+| `install.ps1` | **yes** | Installs the skill into a skills directory (PowerShell) |
 
 ## Installation
 
-```bash
-# From the monorepo root
-./install.sh                               # installs all skills to ~/.copilot/skills and ~/.codex/skills
+**Linux / macOS / WSL:**
 
-# Or just this skill
+```bash
+./install.sh                               # installs all skills to ~/.copilot/skills and ~/.codex/skills
 ./skills/elmer-fem/install.sh              # install to both Copilot and Codex
 ./skills/elmer-fem/install.sh --copilot
-./skills/elmer-fem/install.sh --codex
-./skills/elmer-fem/install.sh --skills-dir .github/skills
-
-# Uninstall from both default user dirs
 ./skills/elmer-fem/install.sh --uninstall
+```
+
+**Windows (PowerShell):**
+
+```powershell
+.\install.ps1                               # installs all skills
+.\skills\elmer-fem\install.ps1              # install to both Copilot and Codex
+.\skills\elmer-fem\install.ps1 -Copilot
+.\skills\elmer-fem\install.ps1 -Uninstall
 ```
 
 ## Prerequisites
@@ -45,8 +50,8 @@ transient setup, axisymmetric models, and ParaView post-processing.
 # Typical mesh conversion
 ElmerGrid 14 2 mesh.msh -autoclean
 
-# Run a case
-ELMER_SOLVER_INPUT_FILE=case.sif ElmerSolver | tee solver.log
+# Run a case (case.sif is the default input)
+ElmerSolver
 
 # Visualize time-series output
 paraview results/fields.pvd

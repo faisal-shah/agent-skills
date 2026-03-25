@@ -319,10 +319,11 @@ Convert with:
 ElmerGrid 14 2 mesh.msh -autoclean
 ```
 
-Check:
+Check (inspect the first ~40 lines):
 
-```bash
-sed -n '1,40p' mesh/mesh.names
+```
+head -40 mesh/mesh.names          # Linux/macOS
+Get-Content mesh/mesh.names -Head 40   # Windows PowerShell
 ```
 
 ### SIF pattern
@@ -419,7 +420,17 @@ End
 ### Run
 
 ```bash
-ELMER_SOLVER_INPUT_FILE=case.sif ElmerSolver | tee solver.log
+ElmerSolver                        # uses case.sif by default
+```
+
+To use a non-default SIF name or capture logs:
+
+```bash
+# Linux/macOS
+ELMER_SOLVER_INPUT_FILE=case.sif ElmerSolver 2>&1 | tee solver.log
+
+# Windows PowerShell
+$env:ELMER_SOLVER_INPUT_FILE="case.sif"; ElmerSolver 2>&1 | Tee-Object solver.log
 ```
 
 Then open `results/fields.pvd` in ParaView.

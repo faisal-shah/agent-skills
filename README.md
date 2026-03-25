@@ -15,44 +15,30 @@ Elmer FEM setup, schematic drawing, and persistent memory across sessions.
 
 ## Installation
 
-Install all skills at once, or pick individual ones. The shell installers
-default to both user-level agent skill directories if no path is provided:
-`~/.copilot/skills` and `~/.codex/skills`.
+Install all skills at once, or pick individual ones. Installers default to both
+user-level agent skill directories if no path is provided: `~/.copilot/skills`
+and `~/.codex/skills`.
+
+**Linux / macOS / WSL:**
 
 ```bash
-# All skills (default: install to both Copilot and Codex user dirs)
-./install.sh
-
-# Only Copilot CLI
-./install.sh --copilot
-
-# Only Codex
-./install.sh --codex
-
-# Individual skill
-./skills/circuit-sim/install.sh --copilot
-./skills/elmer-fem/install.sh --codex
-./skills/netlist-to-schematic/install.sh --all
-./skills/memory/install.sh --all
-
-# Custom path (for example, project-local GitHub Copilot skills)
-./install.sh --skills-dir .github/skills
-
-# Backward-compatible positional custom path
-./install.sh /path/to/skills
-
-# Uninstall from both default user dirs
-./install.sh --uninstall
+./install.sh                                        # all skills → both Copilot and Codex
+./install.sh --copilot                              # all skills → Copilot only
+./install.sh --codex                                # all skills → Codex only
+./skills/circuit-sim/install.sh --copilot           # individual skill
+./install.sh --skills-dir .github/skills            # custom path
+./install.sh --uninstall                            # remove from both default dirs
 ```
 
-The **memory** skill also includes a PowerShell installer for native Windows:
+**Windows (PowerShell):**
 
 ```powershell
-.\skills\memory\install.ps1                         # defaults to ~/.copilot/skills and ~/.codex/skills
-.\skills\memory\install.ps1 -Copilot
-.\skills\memory\install.ps1 -Codex
-.\skills\memory\install.ps1 -SkillsDir C:\my\skills
-.\skills\memory\install.ps1 -Uninstall
+.\install.ps1                                       # all skills → both Copilot and Codex
+.\install.ps1 -Copilot                              # all skills → Copilot only
+.\install.ps1 -Codex                                # all skills → Codex only
+.\skills\circuit-sim\install.ps1 -Copilot           # individual skill
+.\install.ps1 -SkillsDir C:\my\skills               # custom path
+.\install.ps1 -Uninstall                            # remove from both default dirs
 ```
 
 Supported skill directories:
@@ -77,7 +63,9 @@ agent-skills/
 ├── README.md               ← this file
 ├── AGENTS.md               ← AI context for developing skills
 ├── copilot-instructions.md ← user-level Copilot agent instructions (~/.copilot/copilot-instructions.md)
-├── install.sh              ← install all skills at once
+├── .gitattributes          ← line-ending rules (LF for .sh, CRLF for .ps1)
+├── install.sh              ← install all skills (bash)
+├── install.ps1             ← install all skills (PowerShell)
 ├── LICENSE                 ← MIT
 └── skills/
     ├── circuit-sim/        ← ngspice simulation skill
@@ -85,6 +73,7 @@ agent-skills/
     │   ├── AGENTS.md
     │   ├── README.md
     │   ├── install.sh
+    │   ├── install.ps1
     │   ├── scripts/
     │   │   ├── run_sim.py
     │   │   └── parse_rawfile.py
@@ -93,19 +82,22 @@ agent-skills/
     │   ├── SKILL.md
     │   ├── AGENTS.md
     │   ├── README.md
-    │   └── install.sh
+    │   ├── install.sh
+    │   └── install.ps1
     ├── netlist-to-schematic/ ← Circuitikz schematic skill
     │   ├── SKILL.md
     │   ├── AGENTS.md
     │   ├── README.md
     │   ├── install.sh
+    │   ├── install.ps1
     │   └── scripts/
     │       └── compile_tex.py
     └── memory/             ← persistent memory skill
         ├── SKILL.md
         ├── AGENTS.md
         ├── README.md
-        └── install.sh
+        ├── install.sh
+        └── install.ps1
 ```
 
 ## License

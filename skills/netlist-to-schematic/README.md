@@ -15,21 +15,27 @@ publication-quality **circuit schematic diagrams** using Circuitikz (LaTeX).
 | `scripts/compile_tex.py` | **yes** | Compiles Circuitikz `.tex` to PNG via pdflatex + pdftoppm |
 | `README.md` | no | This file (repo documentation only) |
 | `AGENTS.md` | no | AI context for developing the skill itself |
+| `install.sh` | **yes** | Installs the skill into a skills directory (bash) |
+| `install.ps1` | **yes** | Installs the skill into a skills directory (PowerShell) |
 
 ## Installation
 
+**Linux / macOS / WSL:**
+
 ```bash
-# From the monorepo root
-./install.sh                               # installs all skills to ~/.copilot/skills and ~/.codex/skills
-
-# Or just this skill
-./skills/netlist-to-schematic/install.sh   # install to both Copilot and Codex
+./install.sh                                        # installs all skills
+./skills/netlist-to-schematic/install.sh             # install to both Copilot and Codex
 ./skills/netlist-to-schematic/install.sh --copilot
-./skills/netlist-to-schematic/install.sh --codex
-./skills/netlist-to-schematic/install.sh --skills-dir .github/skills
-
-# Uninstall from both default user dirs
 ./skills/netlist-to-schematic/install.sh --uninstall
+```
+
+**Windows (PowerShell):**
+
+```powershell
+.\install.ps1                                        # installs all skills
+.\skills\netlist-to-schematic\install.ps1             # install to both Copilot and Codex
+.\skills\netlist-to-schematic\install.ps1 -Copilot
+.\skills\netlist-to-schematic\install.ps1 -Uninstall
 ```
 
 ## Prerequisites

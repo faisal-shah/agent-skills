@@ -268,7 +268,7 @@ def simulate(
         cir_path = str(netlist)
 
     raw_path = cir_path.rsplit(".", 1)[0] + ".raw"
-    netlist_text = Path(cir_path).read_text()
+    netlist_text = Path(cir_path).read_text(encoding="utf-8")
 
     uic_warning = _check_uic_warning(netlist_text)
     if uic_warning:

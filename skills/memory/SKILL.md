@@ -112,7 +112,7 @@ The primary command. Sets up persistent memory files from the current session's 
    **If new directory:**
    - Derive a short kebab-case name from the plan's topic/title.
    - Propose `./<derived-name>/` (relative to CWD). Use forward slashes — works on both Linux and Windows.
-   - Create the directory: `mkdir -p <project-dir>`
+   - Create the project directory.
    - All subsequent operations happen inside `<project-dir>`.
 
    **If in-place:**
@@ -125,9 +125,7 @@ The primary command. Sets up persistent memory files from the current session's 
    **If git strategy is "none":** skip.
 
 5. **Create `.memory/` and seed files:**
-   ```
-   mkdir -p .memory
-   ```
+   - Create the `.memory/` directory.
    - Write `.memory/config.yml` with the chosen strategies and date.
    - Copy the plan to `.memory/plan.md` (frozen reference). **If the plan exceeds ~150 lines**, extract detailed reference material (pin tables, API specs, hardware maps) into `.memory/reference.md` and keep only the task list, key decisions, and architecture overview in `plan.md`.
    - Extract project context (overview, architecture, tech stack, goals) into `.memory/context.md`.
@@ -186,11 +184,9 @@ Read and summarize all memory files without modifying anything. Use this when re
 When the agent has gone off the rails. Resets progress and lessons while keeping context and the original plan.
 
 **If git is enabled:**
-```
-git tag memory-archive-$(date +%Y%m%d-%H%M%S)
-```
 
-Reinitializes `.memory/progress.md` from the frozen plan (with mandatory preamble) and clears `.memory/lessons.md`. Context and config are preserved.
+Tag the current state before resetting (use a timestamped tag name like
+`memory-archive-20250309-143022`), then reinitialize.
 
 **If git is not enabled:** warn the user that the current state will be lost (no tag to fall back to), and ask for confirmation before proceeding.
 
