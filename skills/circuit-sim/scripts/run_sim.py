@@ -258,7 +258,7 @@ def simulate(
             is_file = False
     if isinstance(netlist, str) and not is_file:
         tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".cir", delete=False
+            mode="w", suffix=".cir", delete=False, encoding="utf-8"
         )
         tmp.write(netlist)
         tmp.close()
@@ -283,7 +283,7 @@ def simulate(
         else:
             injected = _inject_control_block(netlist_text, raw_path)
         inj_tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".cir", delete=False
+            mode="w", suffix=".cir", delete=False, encoding="utf-8"
         )
         inj_tmp.write(injected)
         inj_tmp.close()

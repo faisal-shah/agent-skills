@@ -3,7 +3,7 @@
 # dependencies = ["numpy"]
 # ///
 """
-Parse ngspice binary rawfiles into numpy arrays.
+Parse ngspice rawfiles (binary or text) into numpy arrays.
 
 Usage:
     uv run parse_rawfile.py output.raw              # print summary
@@ -58,12 +58,27 @@ def parse_rawfile_all(path: str | Path) -> list[dict[str, np.ndarray]]:
     return results
 
 
+def _find_data_section(raw: bytes, start: int = 0) -> tuple[str, int, int]:
+    """Find the data section marker (Binary: or Values:) in raw bytes.
+
+    Returns (format, header_end, data_start) where format is 'binary' or 'text'.
+    Handles both LF and CRLF line endings.
+    """
+    for fmt, label in [("binary", b"Binary:"), ("text", b"Values:")]:
+        try:
+            idx = raw.index(label, start)
+            # Find the newline after the marker
+            nl = raw.index(b"\n", idx)
+            return fmt, idx, nl + 1
+        except ValueError:
+            continue
+    raise ValueError("Rawfile has no Binary: or Values: section")
+
+
 def _parse_single_plot(raw: bytes, start: int) -> tuple[dict[str, np.ndarray], int]:
     """Parse one plot from raw bytes starting at `start`. Returns (data, next_offset)."""
-    marker = b"Binary:\n"
-    idx = raw.index(marker, start)
-    header = raw[start : idx + len(marker)].decode(errors="replace")
-    bin_start = idx + len(marker)
+    fmt, marker_pos, data_start = _find_data_section(raw, start)
+    header = raw[start:marker_pos].decode(errors="replace")
 
     n_vars: int | None = None
     n_pts: int | None = None
@@ -92,20 +107,60 @@ def _parse_single_plot(raw: bytes, start: int) -> tuple[dict[str, np.ndarray], i
     assert len(varnames) == n_vars, f"Expected {n_vars} vars, found {len(varnames)}"
 
     values = np.zeros((n_vars, n_pts), dtype=complex)
-    offset = bin_start
 
-    if is_complex:
-        for i in range(n_pts):
-            for v in range(n_vars):
-                re, im = struct.unpack_from("dd", raw, offset)
-                values[v, i] = complex(re, im)
-                offset += 16
+    if fmt == "binary":
+        offset = data_start
+        if is_complex:
+            for i in range(n_pts):
+                for v in range(n_vars):
+                    re, im = struct.unpack_from("dd", raw, offset)
+                    values[v, i] = complex(re, im)
+                    offset += 16
+        else:
+            for i in range(n_pts):
+                for v in range(n_vars):
+                    (val,) = struct.unpack_from("d", raw, offset)
+                    values[v, i] = complex(val, 0)
+                    offset += 8
     else:
+        # Text/ASCII format: values listed as real,imag or just real
+        text_section = raw[data_start:].decode(errors="replace")
+        nums = []
+        for line in text_section.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            # Check for start of next plot (new Title: header)
+            if line.startswith("Title:"):
+                break
+            # Extract numeric value(s) from the line — skip the point index prefix
+            # Lines look like "0\t\t1.23,4.56" or "\t1.23,4.56" or "\t1.23"
+            parts = line.split("\t")
+            val_str = parts[-1].strip()
+            if not val_str:
+                continue
+            if "," in val_str:
+                re_s, im_s = val_str.split(",", 1)
+                nums.append(complex(float(re_s), float(im_s)))
+            else:
+                try:
+                    nums.append(complex(float(val_str), 0))
+                except ValueError:
+                    continue
         for i in range(n_pts):
             for v in range(n_vars):
-                (val,) = struct.unpack_from("d", raw, offset)
-                values[v, i] = complex(val, 0)
-                offset += 8
+                idx = i * n_vars + v
+                if idx < len(nums):
+                    values[v, i] = nums[idx]
+        # Estimate offset past the text data for multi-plot support
+        offset = len(raw)
+        title_marker = b"Title:"
+        search_start = data_start + 1
+        try:
+            next_title = raw.index(title_marker, search_start)
+            offset = next_title
+        except ValueError:
+            pass
 
     return {name: values[i] for i, name in enumerate(varnames)}, offset
 
@@ -113,8 +168,8 @@ def _parse_single_plot(raw: bytes, start: int) -> tuple[dict[str, np.ndarray], i
 def parse_rawfile_header(path: str | Path) -> dict:
     """Parse only the header of a rawfile (no data). Useful for inspection."""
     raw = Path(path).read_bytes()
-    marker = b"Binary:\n"
-    header = raw[: raw.index(marker)].decode(errors="replace")
+    _fmt, marker_pos, _data_start = _find_data_section(raw)
+    header = raw[:marker_pos].decode(errors="replace")
 
     info: dict = {"variables": [], "flags": ""}
     in_vars = False
@@ -200,7 +255,7 @@ _dump_csv = dump_csv
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Parse ngspice binary rawfile")
+    parser = argparse.ArgumentParser(description="Parse ngspice rawfile (binary or text)")
     parser.add_argument("rawfile", help="Path to .raw file")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument("--csv", action="store_true", help="Output as CSV")
