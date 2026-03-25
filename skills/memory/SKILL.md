@@ -1,328 +1,344 @@
 ---
 name: memory
-description: "Bootstrap persistent memory files that survive compactions and session restarts, with flexible location and git strategies"
+description: "Create and maintain persistent project memory that survives session restarts, compaction, and handoffs. Use when asked to initialize memory, save progress, resume after compaction, reconcile stale state, or reset memory in GitHub Copilot CLI or OpenAI Codex CLI."
 ---
 
 # Memory Skill
 
-Bootstrap and manage persistent memory files that maintain context across Copilot CLI session compactions and restarts. Supports multiple setup strategies — in-place or new directory, with or without git tracking.
+Use this skill when the user wants durable project memory outside the chat transcript.
 
-## Workflow Overview
+## Core Rules
 
-```
-┌───────────────────────────┐     ┌──────────────────────────────────┐
-│  Session 1: Planning      │     │  Session 2+: Grinding            │
-│                           │     │                                  │
-│  User + agent develop     │     │  cd <project-dir>                │
-│  a plan (plan mode)       │     │  AGENTS.md auto-loads            │
-│         │                 │     │  Agent reads .memory/*           │
-│         ▼                 │     │  Picks up next task              │
-│  "memory init"            │     │  Works...                        │
-│  → detects environment    │     │  Updates .memory/progress.md     │
-│  → asks location + git    │     │  Commits (if git enabled)        │
-│  → seeds memory files     │     │                                  │
-└───────────────────────────┘     └──────────────────────────────────┘
-```
+- Durable state lives in `.memory/`, not in chat history.
+- A task is not done until `.memory/progress.md` reflects reality.
+- Put checkpoint gates inside the task board itself.
+- Keep `AGENTS.md` tiny; keep real state in `.memory/*`.
+- Do not rely on a last-second save before compaction or handoff.
 
-## Setup Strategies
+## Platform Notes
 
-`memory init` supports flexible setup along two independent axes:
+- Use the same `.memory/` layout for GitHub Copilot CLI and OpenAI Codex CLI.
+- Keep the repo-root `AGENTS.md` memory block short and idempotent.
+- OpenAI Codex may not reload a newly written `AGENTS.md` until the next session. After `memory init`, `memory reconcile`, or any loader-block change, immediately read `.memory/context.md`, `.memory/progress.md`, and `.memory/lessons.md` yourself and continue from them.
+- Do not auto-read `.memory/plan.md` on every restart. Use it only when you need original intent or reference material.
 
-### Location Strategy
-
-| Strategy | When to use | What happens |
-|----------|------------|--------------|
-| **In-place** | Already in the project directory (existing codebase, repo, etc.) | Creates `.memory/` and `AGENTS.md` in CWD |
-| **New directory** | Starting fresh, want an isolated workspace | Creates a new subdirectory, then sets up inside it |
-
-### Git Strategy
-
-| Strategy | When to use | What happens |
-|----------|------------|--------------|
-| **None** | Don't need version history, or managing git separately | No git operations at all |
-| **Existing** | CWD is already a git repo | Commits memory files into the existing repo |
-| **New** | Want a fresh repo for this project | Runs `git init`, then commits |
-
-### Strategy Detection
-
-During `memory init`, **auto-detect and propose defaults** based on environment:
-
-```
-Is CWD a git repo?
-├─ YES → default: in-place + existing git
-│        (CWD already has project structure)
-└─ NO
-   ├─ Does CWD contain project files? (src/, package.json, Makefile, etc.)
-   │  └─ YES → default: in-place + new git (or none)
-   └─ NO → default: new directory + new git
-```
-
-**Always confirm** the proposed strategy with the user before proceeding. Present it as a short summary:
-
-> "I'll set up memory **in the current directory** using the **existing git repo**. Sound good?"
-
-or
-
-> "I'll create `./my-project/` with a **new git repo**. Sound good?"
-
-The user can override any axis.
-
-## Directory Structure
+## Directory Layout
 
 ```
 <project-root>/
-  AGENTS.md              ← auto-loaded by Copilot CLI, contains memory instructions
+  AGENTS.md              ← short loader block for compatible agents
   .memory/
-    config.yml           ← records chosen strategies so update/reset know what to do
-    plan.md              ← frozen original plan (reference, don't edit)
-    reference.md         ← (optional) large reference material extracted from plan
-    context.md           ← project overview, architecture, tech stack, key decisions
-    progress.md          ← task list with checkpoints, current focus, next steps
-    lessons.md           ← gotchas, patterns discovered, decisions with rationale
+    config.yml           ← strategy + checkpoint metadata
+    plan.md              ← compressed frozen plan
+    reference.md         ← optional detailed specs or large tables
+    context.md           ← project overview, architecture, stack, decisions
+    progress.md          ← resume point, phased tasks, checkpoint gates
+    lessons.md           ← gotchas, patterns, decisions, checkpoint log
 ```
 
-### .memory/config.yml
-
-Created during `memory init`. Records the chosen strategies so that `memory update`, `memory reset`, and the AGENTS.md instructions all behave correctly.
+### `.memory/config.yml`
 
 ```yaml
+memory_version: 2
 location: in-place    # or "new-directory"
 git: existing         # or "new", "none"
-created: 2025-03-09
+created: 2026-03-25
+last_checkpoint: 2026-03-25T18:40:00Z
 ```
 
 ## Commands
 
-### `memory init` — bootstrap memory for a project
+### `memory init` — bootstrap durable memory
 
-The primary command. Sets up persistent memory files from the current session's plan.
+**Goal:** seed a compact, durable project state that a fresh agent can use in minutes.
 
 **Steps:**
 
-1. **Locate the plan.** Look for plan.md in the session state folder. If no plan exists, tell the user to develop one first (using plan mode) before initializing memory.
+1. **Gather source plan material** in this order:
+   - a file/path the user explicitly gave you
+   - the task list or plan from the current chat
+   - repo docs such as `README`, `TODO`, issue text, or design notes
+   - any session plan file the current tool exposes
+   If you still have no plan, ask the user for a short task list first.
 
-2. **Detect environment and propose strategy:**
-   - Check if CWD is inside a git repo (`git rev-parse --git-dir`).
-   - Check if CWD contains project files.
-   - Apply the detection logic above to propose default location + git strategy.
-   - **Ask the user** to confirm or override. Present both axes clearly.
+2. **Detect environment and propose defaults:**
+   - Is CWD already a git repo? Default to `in-place + existing git`.
+   - Is CWD clearly a project directory but not yet a repo? Default to
+     `in-place + new git` or `in-place + none`.
+   - Is CWD just a scratch folder? Default to `new directory + new git`.
+   Always confirm the proposed location and git strategy before proceeding.
 
-3. **Set up the target directory:**
+3. **Choose target root:**
+   - **In-place:** work in CWD.
+   - **New directory:** derive a short kebab-case name from the plan topic,
+     propose `./<name>/`, create it, then work there.
 
-   **If new directory:**
-   - Derive a short kebab-case name from the plan's topic/title.
-   - Propose `./<derived-name>/` (relative to CWD). Use forward slashes — works on both Linux and Windows.
-   - Create the project directory.
-   - All subsequent operations happen inside `<project-dir>`.
-
-   **If in-place:**
-   - All operations happen in CWD. No directory creation needed.
-
-4. **Set up git (if applicable):**
-
-   **If git strategy is "new":** `git init`
-   **If git strategy is "existing":** verify repo is clean or warn about uncommitted changes.
-   **If git strategy is "none":** skip.
+4. **Set up git if requested:**
+   - `existing`: verify the repo and warn if there are uncommitted changes.
+   - `new`: run `git init` in the target root.
+   - `none`: skip git work.
 
 5. **Create `.memory/` and seed files:**
-   - Create the `.memory/` directory.
-   - Write `.memory/config.yml` with the chosen strategies and date.
-   - Copy the plan to `.memory/plan.md` (frozen reference). **If the plan exceeds ~150 lines**, extract detailed reference material (pin tables, API specs, hardware maps) into `.memory/reference.md` and keep only the task list, key decisions, and architecture overview in `plan.md`.
-   - Extract project context (overview, architecture, tech stack, goals) into `.memory/context.md`.
-   - Extract the task list into `.memory/progress.md`. Include the mandatory preamble (see format below). The preamble establishes that updating memory is part of completing each task — not a separate step.
-   - Create `.memory/lessons.md` with empty template sections.
+   - Write `.memory/config.yml`.
+   - Write `.memory/plan.md` as a **compressed frozen plan**.
+     Keep it under roughly 120 lines. Preserve goals, architecture, phases,
+     and major constraints. Move large tables, API details, pin maps, or
+     long reference notes into `.memory/reference.md`.
+   - Write `.memory/context.md` from the plan:
+     overview, architecture, tech stack, invariants, and key decisions.
+   - Write `.memory/progress.md` as a **phase board**, not a journal:
+     - Add `## Resume Here` with exactly one next task and one next action.
+     - Split work into 2–6 phases when possible.
+     - Give tasks stable IDs such as `P1-T1`, `P2-T3`.
+     - Add a **gate task** after every phase, or every 2–4 tasks if phases
+       are unclear.
+     - Gate text should be explicit: `GATE-P1 — update .memory/* before
+       Phase 2`.
+   - Write `.memory/lessons.md` with gotchas, patterns, decisions, and a
+     checkpoint log.
 
-6. **Create AGENTS.md** with the memory loader block (see template below). If AGENTS.md already exists, **append** the memory section rather than overwriting — the file may contain other project-specific instructions.
+6. **Create or update repo-root `AGENTS.md`:**
+   - If no `AGENTS.md` exists, create one.
+   - If it exists, replace the existing memory block if marker comments are
+     present; otherwise append a single memory block.
+   - Use these markers so repeated `memory init` is idempotent:
+     `<!-- memory-skill:start -->` and `<!-- memory-skill:end -->`.
+   - Keep the block short. It should point agents to `.memory/context.md`,
+     `.memory/progress.md`, and `.memory/lessons.md`, and it should restate
+     the checkpoint rule.
 
-7. **Initial commit (if git enabled):**
-   ```
-   git add -A
-   git commit -m "Initialize project memory"
-   ```
+7. **Current-session safety step:** after writing or updating `AGENTS.md`,
+   immediately read `.memory/context.md`, `.memory/progress.md`, and
+   `.memory/lessons.md` yourself. Do not assume the current session will
+   reload new instructions automatically.
 
-8. **Tell the user:** print the full path and next steps. If a new directory was created, suggest `cd <project-dir>` for the next session.
+8. **Initial commit (optional but recommended if git is enabled):** commit the seeded memory files, especially when creating a new repo or handing work off to another session.
 
-### `memory update` (or "save progress") — checkpoint current state
+9. **Tell the user:** report the chosen root, strategy, and next task. If a
+   new directory was created, tell them the exact `cd` path to use later.
 
-The agent does this automatically after milestones, but the user can force it at any time. Also useful before manually running `/compact`.
+### `memory update` — checkpoint after work
 
-**When to update (automatically, don't wait to be asked):**
-
-- After completing each task — **mandatory** (a task is not done until memory is updated)
-- After hitting and resolving a significant blocker
-- After making a key decision that changes approach
-
-**The goal:** if the session dies right now, a fresh agent reads `.memory/` and picks up within minutes. There is **no pre-compaction hook** — auto-compaction at ~95% context gives no warning — so checkpointing after every task is the only reliable safeguard.
+Run this automatically after each completed task, each gate, each resolved
+blocker, each major decision, and before any risky refactor or manual
+compaction command.
 
 **Steps:**
 
-1. Read `.memory/config.yml` to determine git strategy.
-2. Read all `.memory/` files to understand prior state.
-3. Review what was accomplished since the last update.
+1. Read `.memory/config.yml`, `.memory/progress.md`, and `.memory/lessons.md`.
+2. Inspect repo reality since the last checkpoint:
+   - if git is enabled, use `git status --short` and optionally
+     `git diff --stat`
+   - otherwise inspect the files you just changed and the work you finished
+3. If `.memory/` is already stale, repair it first instead of layering a
+   new checkpoint onto wrong state.
 4. Update `.memory/progress.md`:
-   - Mark completed tasks as done (with date).
-   - Update current focus to reflect what's actively being worked on.
-   - Add brief notes on partially-completed work (what's done, what remains).
-   - Reorder/reprioritize next steps if needed.
-   - **Self-check:** if more than 3 tasks were completed since the last update, you are checkpointing too infrequently.
-5. Update `.memory/lessons.md` if any new gotchas or decisions arose.
-6. Update `.memory/context.md` only if architecture or tech stack changed.
-7. **If git is enabled**, commit:
-   ```
-   git add .memory/
-   git commit -m "Update memory: <brief summary>"
-   ```
+   - mark completed tasks with dates
+   - advance `## Resume Here` to the next unfinished task
+   - update `Next action` with the next concrete command or file to touch
+   - mark the relevant gate complete when the phase checkpoint is done
+   - if more than 2 regular tasks were completed since the last checkpoint,
+     add a warning note that checkpoint cadence slipped
+5. Update `.memory/lessons.md` with new gotchas, patterns, and decisions.
+   Append a row to the checkpoint log with the date and the number of tasks
+   completed since the previous checkpoint.
+6. Update `.memory/context.md` only if architecture, tooling, or invariants
+   changed.
+7. Update `last_checkpoint` in `.memory/config.yml`.
+8. **If git is enabled, commit when it matters:**
+   - phase boundary or gate completed
+   - user asked to save or commit
+   - before risky edits, reset, or handoff
+   - end of session after meaningful progress
+   A commit is recommended, but the hard requirement is that `.memory/*`
+   must be updated before moving on.
 
-**Keeping progress.md lean:** The file must stay scannable — it's loaded into context every session. Don't write a journal; write a status board. Completed tasks get a one-line `[x]` entry, not a paragraph. If the file exceeds ~80 lines, collapse older completed items into a single "N tasks completed" summary line.
+**Keep it lean:** `progress.md` should stay scannable. Collapse old done
+tasks into one-line summaries if the file grows beyond roughly 80 lines.
 
-### `memory status` — read-only overview
+### `memory status` — read-only snapshot
 
-Read and summarize all memory files without modifying anything. Use this when restarting after a crash or process death to see where things stand before the agent starts working.
+Read `.memory/config.yml`, `.memory/context.md`, `.memory/progress.md`, and
+`.memory/lessons.md`, then summarize:
 
-### `memory reset` — recover from a bad state
+- current focus and next task
+- active blockers
+- important decisions/gotchas
+- whether `.memory/` appears stale relative to repo reality
 
-When the agent has gone off the rails. Resets progress and lessons while keeping context and the original plan.
+Do **not** modify files in `memory status`.
 
-**If git is enabled:**
+### `memory reconcile` — repair stale memory
 
-Tag the current state before resetting (use a timestamped tag name like
-`memory-archive-20250309-143022`), then reinitialize.
+Use this when the repo state and `.memory/*` disagree: after compaction, restart, partial crashes, manual file edits, or missed checkpoints.
 
-**If git is not enabled:** warn the user that the current state will be lost (no tag to fall back to), and ask for confirmation before proceeding.
+**Steps:**
 
-## Memory File Formats
+1. Read all `.memory/` files.
+2. Inspect actual repo state:
+   - changed files
+   - tests run or still pending
+   - completed work not reflected in `progress.md`
+   - tasks marked in progress even though the code is already done
+3. Rewrite `.memory/progress.md` to match reality.
+   Update `Resume Here`, completed task markers, gates, and notes.
+4. Add a reconciliation note to `.memory/lessons.md` with what drift was
+   found and how it was repaired.
+5. Update `.memory/context.md` if the real architecture changed.
+6. Update `.memory/config.yml:last_checkpoint`.
+7. If git is enabled, commit when the user asked for a save or when a clean
+   handoff matters.
 
-### .memory/context.md
+### `memory reset` — recover from a bad memory state
+
+Use this only when `.memory/` is unusable and reconciliation is not the
+right fix.
+
+- If git is enabled, tag or otherwise preserve the current state before
+  resetting.
+- Keep `.memory/plan.md` and `.memory/reference.md`.
+- Rebuild `.memory/progress.md`, `.memory/lessons.md`, and any stale loader
+  block from the preserved plan plus current repo state.
+- Warn before destructive reset when no git history exists.
+
+## File Formats
+
+### `.memory/context.md`
 
 ```markdown
 # Project Context
 
 ## Overview
-[What this project is, why it exists, who it's for]
+[what this project is and why it exists]
 
 ## Architecture
-[Key components, how they fit together, data flow]
+[major components, boundaries, and data flow]
 
 ## Tech Stack
-[Languages, frameworks, tools, versions that matter]
+[languages, frameworks, tools, versions that matter]
+
+## Invariants
+[rules that must remain true]
 
 ## Key Decisions
-[Important architectural/design decisions and WHY they were made]
+| Decision | Rationale | Date |
+|----------|-----------|------|
 ```
 
-### .memory/progress.md
+### `.memory/progress.md`
 
 ```markdown
 # Progress
 
-> **RULE: After completing each task, update this file and commit BEFORE starting
-> the next task. This is mandatory. Compaction can happen without warning —
-> every checkpoint may be your last.**
+> **RULE: After each completed task or gate, update this file before moving
+> on. Durable state lives here, not in chat history.**
 
-## Current Focus
-[What we're actively working on RIGHT NOW — most important section after compaction]
+## Resume Here
+- Next task: P1-T2
+- Next action: implement config loading in `src/config.py`
+- Last checkpoint: 2026-03-25 18:40 UTC
 
-## Tasks
-- [x] Task 1 description (done YYYY-MM-DD)
-- [x] Task 2 description (done YYYY-MM-DD)
-- [ ] **>>> Task 3 description** ← in progress
-- [ ] Task 4 description
-- [ ] Task 5 description
+## Phase 1 — Skeleton
+- [x] P1-T1 create CLI parser skeleton (done 2026-03-25)
+- [ ] P1-T2 add config loading
+- [ ] GATE-P1 — update `.memory/*` before Phase 2
+
+## Phase 2 — Validation
+- [ ] P2-T1 add smoke tests
+- [ ] P2-T2 document CLI flags
+- [ ] GATE-P2 — update `.memory/*` before Phase 3
 
 ## Blocked
-[Anything stuck and why]
+- None.
 
 ## Notes
-[Any context about priorities, ordering, or scope changes vs. the original plan]
+- Keep tasks small enough that a missed checkpoint loses little work.
 ```
 
-### .memory/lessons.md
+### `.memory/lessons.md`
 
 ```markdown
 # Lessons Learned
 
 ## Gotchas
-[Things that tripped us up — non-obvious behaviors, environment quirks, footguns]
+- [non-obvious behavior or footgun]
 
 ## Patterns
-[Conventions in this codebase, recurring structures, naming schemes]
+- [recurring codebase convention]
 
 ## Decisions
 | Decision | Rationale | Date |
 |----------|-----------|------|
-| [what we decided] | [why] | [when] |
+
+## Checkpoint Log
+| Date | Tasks Since Last Checkpoint | Notes |
+|------|-----------------------------|-------|
 ```
 
-### .memory/plan.md
+### `.memory/plan.md`
 
-Copy of the original plan (large reference material extracted to `reference.md` if the plan exceeds ~150 lines). **Never edit this file.** It's the reference for what was originally intended. Compare against `progress.md` to see drift. Read only when you need to check original intent — don't load into context routinely.
+Compressed frozen plan. Never turn this into a running journal. Keep it
+short enough to consult on demand. Large reference material belongs in
+`.memory/reference.md`.
 
-## AGENTS.md Template
+## `AGENTS.md` Block Template
 
-When creating AGENTS.md (or appending to an existing one), use this block:
+Use this exact block, bounded by markers, when creating or updating the
+loader instructions:
 
 ```markdown
+<!-- memory-skill:start -->
 # Project Memory
 
-This project uses persistent memory files to maintain context across sessions and compactions.
+Before doing work, read `.memory/context.md`, `.memory/progress.md`, and
+`.memory/lessons.md`. Read `.memory/plan.md` or `.memory/reference.md` only
+when you need original intent or detailed reference material.
 
-## ⚠️ Critical Rule — Checkpoint After Every Task
+A task is not done until `.memory/progress.md` matches reality. After each
+completed task or gate, update `.memory/progress.md` and `.memory/lessons.md`.
+Update `.memory/context.md` only when architecture or invariants change.
 
-After completing EACH task, you MUST:
-1. Update `.memory/progress.md` — mark the task done, update current focus
-2. Update `.memory/lessons.md` if any gotchas or decisions arose
-3. If git is enabled: `git add .memory/ && git commit -m "Update memory: <summary>"`
-
-Do this BEFORE starting the next task. No exceptions. A task is not "done" until memory is updated. Compaction can strike at any time with no warning — every checkpoint may be your last.
-
-## On Session Start / After Compaction
-
-**Before doing any work**, read these files in order:
-
-1. `.memory/context.md` — What this project is and how it's built
-2. `.memory/progress.md` — Where we are and what to do next
-3. `.memory/lessons.md` — What we've learned (don't repeat mistakes)
-
-Then pick up the next incomplete task from progress.md and continue working.
-
-## Updating Memory
-
-Update `.memory/` files after:
-
-- Completing any task (mandatory — see Critical Rule above)
-- Resolving a significant blocker
-- Making a key decision that changes approach
-- When the user says "update memory" or "save progress"
-
-Steps:
-1. Read `.memory/config.yml` to check if git is enabled
-2. Update `.memory/progress.md` — mark tasks done, update current focus, note partial progress on in-flight work
-3. Add new entries to `.memory/lessons.md` — any gotchas hit or decisions made
-4. Update `.memory/context.md` only if architecture changed
-5. If git is enabled: `git add .memory/ && git commit -m "Update memory: <summary>"`
-
-**Keep it lean.** progress.md is loaded every session — write a status board, not a journal. Completed tasks get one-line `[x]` entries. Collapse old done items when the file exceeds ~80 lines.
-
-## ⚠ Compaction Warning
-
-There is **no pre-compaction hook** in Copilot CLI. Auto-compaction triggers at ~95% context usage with no warning and no callback. This means:
-
-- You CANNOT rely on saving state "just before" compaction — it may happen at any time.
-- Checkpointing after every task is the **only** reliable mitigation.
-- Treat every memory update as if it might be the last thing you do before losing context.
-
-## Reference
-
-The original project plan is preserved in `.memory/plan.md` (read-only reference). Only consult it when you need original intent or reference details — don't load routinely.
+If `.memory/` disagrees with the repo state, reconcile memory before coding.
+<!-- memory-skill:end -->
 ```
+
+## Worked Example
+
+**User asks:** “Set up durable memory for this existing CLI project so a new session can resume cleanly later.”
+
+**Good behavior:**
+
+1. Detect existing repo → propose `in-place + existing git`.
+2. Build a compressed `.memory/plan.md` from the current chat and repo docs.
+3. Create phased `progress.md` with gates:
+
+```markdown
+## Resume Here
+- Next task: P1-T1
+- Next action: create `src/cli.py` parser skeleton
+- Last checkpoint: 2026-03-25 19:00 UTC
+
+## Phase 1 — Skeleton
+- [ ] P1-T1 create parser skeleton
+- [ ] P1-T2 add config loading
+- [ ] GATE-P1 — update `.memory/*` before Phase 2
+```
+
+4. Append or replace the marked memory block in `AGENTS.md`.
+5. Immediately read `.memory/context.md`, `.memory/progress.md`, and
+   `.memory/lessons.md` again in the current session.
+
+**Later, after finishing `P1-T1`:** run `memory update`, mark `P1-T1` done,
+move `Resume Here` to `P1-T2`, record the checkpoint, and continue.
+
+**If the next session finds changed code but stale memory:** run `memory reconcile` first, repair the task board, then continue from the new `Resume Here` section.
 
 ## Guidelines
 
-- **Checkpoint after EVERY task.** Not advice — a structural requirement. A task is not done until memory is updated and committed. The mandatory preamble in progress.md and the Critical Rule in AGENTS.md enforce this.
-- **Keep files concise.** Each file should be scannable in seconds. If progress.md exceeds ~80 lines, archive completed tasks to a dated section or trim them.
-- **Cap plan.md at ~150 lines.** Extract large reference material (pin tables, API specs) into `.memory/reference.md`. The plan gets loaded into context — bloat costs tokens.
-- **Don't duplicate code.** Memory files describe *what* and *why*, not *how*. Never paste code blocks into memory files.
-- **Prune aggressively.** Old completed items, resolved gotchas, and superseded decisions should be trimmed.
-- **Commit memory updates (when git is enabled).** Git history IS your archive. Don't hoard old content — commit, then prune.
-- **Always confirm the setup strategy.** Propose sensible defaults based on environment detection, but never proceed without user confirmation.
-- **Append, don't overwrite AGENTS.md.** If the file already exists, add the memory section to it rather than replacing existing content.
+- Prefer 2–6 phases over a flat 20-item list.
+- Prefer explicit gate tasks over vague “update frequently” reminders.
+- Prefer stable task IDs and one concrete next action.
+- Replace old memory loader blocks in place; do not append duplicates.
+- Describe what changed and why, not code listings.
+- Prune aggressively; git history is the archive when git is enabled.
+- If the user wants every checkpoint committed, obey that stricter rule.

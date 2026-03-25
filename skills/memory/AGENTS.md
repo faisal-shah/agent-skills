@@ -2,57 +2,59 @@
 
 ## What This Skill Is
 
-An agent skill that teaches AI assistants how to create and maintain persistent
-memory files across sessions and compactions. The primary artifact is `SKILL.md`
-which gets loaded into the AI's context when the skill triggers.
+An agent skill that teaches AI assistants how to create and maintain durable
+project memory across session restarts, compaction, and handoffs. The primary
+artifact is `SKILL.md`, which gets loaded when the skill triggers.
 
 ## Key Files
 
-- `SKILL.md` — Main skill content. Loaded by the agent framework. Covers four
-  commands: `memory init`, `memory update`, `memory status`, `memory reset`.
+- `SKILL.md` — Main skill content. Covers `memory init`, `memory update`,
+  `memory status`, `memory reconcile`, and `memory reset`.
+- `README.md` — Human-facing install and compatibility notes.
+- `FEEDBACK-checkpoint-enforcement.md` — Background on why the skill uses
+  phase gates and structural checkpointing.
 
 ## Design Principles
 
-1. **Survive compaction** — Copilot CLI compacts at ~95% context with no warning.
-   The memory skill ensures the agent can resume from `.memory/` files without
-   any context from the previous session.
-
-2. **Structural checkpoint enforcement** — Advisory "update frequently" instructions
-   don't work. The skill uses a mandatory preamble in progress.md and a Critical
-   Rule section leading AGENTS.md to make memory updates part of task completion
-   itself — a task isn't done until memory is updated.
-
-3. **Lean files** — `progress.md` should stay under ~80 lines. It gets loaded
-   every session, so bloat costs tokens. Completed tasks become one-line
-   `[x]` entries; collapse old done items when the file grows.
-
-4. **Describe what and why, not how** — Memory files should not duplicate code.
-   They capture decisions, gotchas, and architecture — things an agent can't
-   infer from the codebase alone.
-
-5. **User confirms strategy** — The skill proposes sensible defaults for
-   location and git strategy, but always asks the user before proceeding.
+1. **Durable state beats transcript state.** The skill should survive
+   restart/compaction without depending on chat history.
+2. **Structural checkpointing.** Advisory reminders are weak; gates must live
+   inside `progress.md` itself.
+3. **Short loader, rich memory files.** Keep the `AGENTS.md` memory block
+   tiny and idempotent; keep actual project state in `.memory/*`.
+4. **Compressed plans.** `plan.md` is a compact frozen reference, not a full
+   transcript dump. Large reference material belongs in `reference.md`.
+5. **Cross-agent compatibility.** The workflow should make sense for both
+   GitHub Copilot CLI and OpenAI Codex CLI, including Codex's session-start
+   instruction loading behavior.
 
 ## Testing Changes
 
-Manual testing:
+Manual testing in a scratch repo:
 
 ```bash
-# In a scratch directory, ask the agent to run: memory init
+# 1) Ask the agent to run: memory init
 # Verify:
-# - .memory/ directory created with 5 files
-# - AGENTS.md created/updated with memory loader block
-# - config.yml reflects chosen strategies
+# - .memory/config.yml, plan.md, context.md, progress.md, lessons.md exist
+# - progress.md includes Resume Here + phase gates
+# - AGENTS.md contains exactly one marked memory block
 #
-# Then: memory update
-# Verify: progress.md and lessons.md updated
+# 2) Ask the agent to complete one synthetic task, then run: memory update
+# Verify:
+# - completed task is marked done
+# - Resume Here advances to the next task
+# - lessons.md checkpoint log gets a new row
 #
-# Then: memory status
-# Verify: read-only, no file modifications
+# 3) Simulate drift (edit a repo file without updating .memory/), then run:
+#    memory status
+# Verify: drift is reported read-only
+#
+# 4) Then run: memory reconcile
+# Verify: progress.md and lessons.md are repaired to match repo reality
 ```
 
 ## Style
 
-- SKILL.md: imperative, step-by-step instructions. The agent follows these
-  literally, so be precise about file formats and field names.
-- Keep the SKILL.md under 350 lines.
+- SKILL.md should stay imperative, concrete, and example-driven.
+- Prefer short tables and compact templates over repeated prose.
+- Keep the loader block tiny and the full SKILL.md under roughly 350 lines.
