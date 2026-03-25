@@ -20,13 +20,16 @@ publication-quality **circuit schematic diagrams** using Circuitikz (LaTeX).
 
 ```bash
 # From the monorepo root
-./install.sh ~/.copilot/skills              # installs all skills
+./install.sh                               # installs all skills to ~/.copilot/skills and ~/.codex/skills
 
 # Or just this skill
-./skills/netlist-to-schematic/install.sh ~/.copilot/skills
+./skills/netlist-to-schematic/install.sh   # install to both Copilot and Codex
+./skills/netlist-to-schematic/install.sh --copilot
+./skills/netlist-to-schematic/install.sh --codex
+./skills/netlist-to-schematic/install.sh --skills-dir .github/skills
 
-# Uninstall
-./skills/netlist-to-schematic/install.sh --uninstall ~/.copilot/skills
+# Uninstall from both default user dirs
+./skills/netlist-to-schematic/install.sh --uninstall
 ```
 
 ## Prerequisites

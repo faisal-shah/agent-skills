@@ -11,6 +11,7 @@ lives under `skills/<name>/` with its own SKILL.md, scripts, and documentation.
 ```
 skills/
 ├── circuit-sim/            ← ngspice simulation (AC/DC/transient, rawfile parsing, plotting)
+├── elmer-fem/              ← general Elmer FEM workflow (mesh → SIF → solve → visualize)
 ├── netlist-to-schematic/   ← SPICE netlist → Circuitikz schematic diagrams
 └── memory/                 ← persistent memory across sessions and compactions
 ```
@@ -52,6 +53,8 @@ Read the relevant skill's `AGENTS.md` before modifying that skill.
 
 - **circuit-sim** and **netlist-to-schematic** are complementary:
   circuit-sim runs simulations, netlist-to-schematic draws the schematic.
+- **elmer-fem** complements **circuit-sim** when a circuit-generated waveform
+  needs to be applied as a boundary condition in a field simulation.
 - **memory** is orthogonal — it manages session persistence, not circuit
   engineering.
 
@@ -62,6 +65,9 @@ Each skill's `AGENTS.md` describes how to test that skill. In general:
 ```bash
 # circuit-sim: run example netlists
 uv run skills/circuit-sim/scripts/run_sim.py skills/circuit-sim/examples/rc_lowpass.cir --plot /tmp/test.png
+
+# elmer-fem: install into a scratch skills directory
+./skills/elmer-fem/install.sh /tmp/skills-test
 
 # netlist-to-schematic: compile a worked example
 uv run skills/netlist-to-schematic/scripts/compile_tex.py example.tex

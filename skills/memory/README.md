@@ -19,15 +19,20 @@ that survive context compactions and session restarts.
 **Linux / macOS / WSL:**
 
 ```bash
-./skills/memory/install.sh                      # defaults to ~/.copilot/skills
+./skills/memory/install.sh                      # defaults to ~/.copilot/skills and ~/.codex/skills
+./skills/memory/install.sh --copilot
+./skills/memory/install.sh --codex
 ./skills/memory/install.sh /path/to/skills      # custom path
+./skills/memory/install.sh --skills-dir .github/skills
 ./skills/memory/install.sh --uninstall           # uninstall
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-.\skills\memory\install.ps1                             # defaults to ~/.copilot/skills
+.\skills\memory\install.ps1                             # defaults to ~/.copilot/skills and ~/.codex/skills
+.\skills\memory\install.ps1 -Copilot
+.\skills\memory\install.ps1 -Codex
 .\skills\memory\install.ps1 -SkillsDir C:\my\skills     # custom path
 .\skills\memory\install.ps1 -Uninstall                   # uninstall
 ```

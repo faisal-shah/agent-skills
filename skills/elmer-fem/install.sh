@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SKILL_NAME="netlist-to-schematic"
+SKILL_NAME="elmer-fem"
 
 usage() {
     echo "Usage: $0 [--uninstall] [--copilot|--codex|--all] [--skills-dir DIR]"
@@ -13,7 +13,7 @@ usage() {
     echo "Install:    $0 /path/to/skills"
     echo "Uninstall:  $0 --uninstall               # removes from both default user dirs"
     echo ""
-    echo "Creates <skills-directory>/$SKILL_NAME/ with SKILL.md and scripts/."
+    echo "Creates <skills-directory>/$SKILL_NAME/ with SKILL.md."
     exit 1
 }
 
@@ -29,9 +29,8 @@ install_to() {
     local skills_root="$1"
     local target="$skills_root/$SKILL_NAME"
 
-    mkdir -p "$target/scripts"
+    mkdir -p "$target"
     cp "$SCRIPT_DIR/SKILL.md" "$target/"
-    cp "$SCRIPT_DIR/scripts/"*.py "$target/scripts/"
     echo "Installed $SKILL_NAME to $target"
 }
 

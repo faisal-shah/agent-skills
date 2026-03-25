@@ -23,13 +23,16 @@ publication-quality plots.
 
 ```bash
 # From the monorepo root
-./install.sh ~/.copilot/skills              # installs all skills
+./install.sh                               # installs all skills to ~/.copilot/skills and ~/.codex/skills
 
 # Or just this skill
-./skills/circuit-sim/install.sh ~/.copilot/skills
+./skills/circuit-sim/install.sh            # install to both Copilot and Codex
+./skills/circuit-sim/install.sh --copilot
+./skills/circuit-sim/install.sh --codex
+./skills/circuit-sim/install.sh --skills-dir .github/skills
 
-# Uninstall
-./skills/circuit-sim/install.sh --uninstall ~/.copilot/skills
+# Uninstall from both default user dirs
+./skills/circuit-sim/install.sh --uninstall
 ```
 
 ## Prerequisites
