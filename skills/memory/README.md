@@ -14,7 +14,6 @@ Codex CLI**.
 | `SKILL.md` | **yes** | Main skill file loaded by compatible agents |
 | `README.md` | no | Human-facing usage notes |
 | `AGENTS.md` | no | AI context for developing this skill |
-| `FEEDBACK-checkpoint-enforcement.md` | no | Design notes that motivated the current structure |
 
 ## Installation
 

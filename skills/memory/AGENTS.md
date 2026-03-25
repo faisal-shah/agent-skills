@@ -11,8 +11,6 @@ artifact is `SKILL.md`, which gets loaded when the skill triggers.
 - `SKILL.md` — Main skill content. Covers `memory init`, `memory update`,
   `memory status`, `memory reconcile`, and `memory reset`.
 - `README.md` — Human-facing install and compatibility notes.
-- `FEEDBACK-checkpoint-enforcement.md` — Background on why the skill uses
-  phase gates and structural checkpointing.
 
 ## Design Principles
 
