@@ -21,13 +21,25 @@ AI's context when the skill triggers.
    across many Elmer jobs: ID mapping, mesh conversion, transient execution
    order, axisymmetry, VTU/PVD output, and ParaView behavior.
 
-3. **Worked example anchors the skill** — Include one concrete end-to-end
-   example, but keep it generic enough that agents can transfer the pattern to
-   other geometries and physics.
+3. **Worked example anchors the skill** — Include concrete end-to-end examples.
+   The pulsed capacitor example (§8) covers general electrostatics. The complete
+   impedance extraction template (§12) covers the most common MagnetoDynamics
+   workflow. Both should be generic enough that agents can transfer the pattern
+   to other geometries and physics.
 
-4. **Do not overstate uncertain behavior** — If a behavior is version-specific
+4. **Validated results build confidence** — The reference results table (§6.10)
+   lets agents sanity-check new models. When adding new worked examples, include
+   quantitative validation data (expected R, L, errors vs analytical/reference).
+
+5. **Do not overstate uncertain behavior** — If a behavior is version-specific
    or not fully validated, phrase it cautiously and tell the agent to verify the
    actual output rather than assuming.
+
+6. **Script template is the multiplier** — The §12 script template captures the
+   canonical PEP 723 structure used across all impedance studies. Agents should
+   adapt the geometry section and keep everything else. When updating the
+   template, ensure the 7-function structure is preserved:
+   `create_mesh → write_circuit → write_sif → run_elmer → postprocess → main → JSON output`.
 
 ## Related Skills
 

@@ -516,7 +516,93 @@ L_per_m = Z.imag / omega           # inductance
 **Parsing gotcha:** When matching column names, do NOT use `"re" in name` —
 this falsely matches the `"res:"` prefix in every line. Use exact key matching.
 
-### 6.7 Validated reference results
+### 6.7 Simple 2-conductor go/return pair
+
+The simplest and most common circuit topology: one Go and one Return conductor.
+
+```python
+from elmer_circuitbuilder import (
+    ElmerComponent, I, R, generate_elmer_circuits, number_of_circuits,
+)
+
+c = number_of_circuits(1)
+c[1].ref_node = 1
+
+comps = []
+comps.append(I("I1", 1, 2, 1.0 + 0j))          # 1 A current source
+comps.append(R("Rshunt", 1, 2, 1e6))            # numerical stability
+
+# Go conductor:   node 2 → 3  (body_id=1, +z current)
+comps.append(ElmerComponent("Go", 2, 3, 1, [1]))
+# Return conductor: node 1 → 3  (body_id=2, REVERSED → −z current)
+comps.append(ElmerComponent("Ret", 1, 3, 2, [2]))
+
+c[1].components.append(comps)
+generate_elmer_circuits(c, "circuit.definition")
+```
+
+This pattern scales: for N go conductors + M return conductors, add more
+`ElmerComponent` entries with unique body IDs, keeping Go on nodes (2→3) and
+Return on nodes (1→3).
+
+### 6.8 Robust stranded coil patching
+
+The simple `str.replace` in §6.3 can double-insert `Number of Turns` if run
+twice. Use this idempotent patcher instead:
+
+```python
+def patch_circuit_for_stranded(path: Path, sigma_eff: float) -> None:
+    """Convert all Massive components to Stranded with given σ_eff."""
+    lines = path.read_text().splitlines()
+    out = []
+    for line in lines:
+        if 'Coil Type = "Massive"' in line:
+            out.append(line.replace('"Massive"', '"Stranded"'))
+            out.append("  Number of Turns = Real 1")
+        else:
+            out.append(line)
+    path.write_text("\n".join(out) + "\n")
+```
+
+Call this after `generate_elmer_circuits()` for litz/stranded conductor models.
+Set `Electric Conductivity = sigma_eff` in the SIF material for each stranded
+conductor (σ_eff = η × σ_Cu where η is the fill factor).
+
+### 6.9 Parametric frequency sweep pattern
+
+For impedance extraction at multiple frequencies, loop over frequencies and
+create a separate run directory per case:
+
+```python
+FREQUENCIES = [10.0, 24_000.0, 36_000.0]  # Hz (10 Hz ≈ DC)
+results = {}
+
+for freq in FREQUENCIES:
+    omega = 2 * math.pi * freq
+    case_dir = base_dir / f"f{freq:.0f}"
+    case_dir.mkdir(parents=True, exist_ok=True)
+
+    create_mesh(case_dir, freq)           # mesh sized for this freq's δ
+    write_circuit(case_dir)               # same circuit topology
+    write_sif(case_dir, omega)            # Angular Frequency = omega
+    run_elmer(case_dir)                   # ElmerGrid + ElmerSolver
+    R, L = postprocess(case_dir, omega)   # parse scalars.dat → Z → R, L
+
+    results[freq] = {"R_mohm": R * 1e3, "L_uH": L * 1e6}
+
+# Save aggregated results
+(base_dir / "results.json").write_text(json.dumps(results, indent=2))
+```
+
+Use `10 Hz` (not `0 Hz`) for the DC case — harmonic solvers divide by ω, so
+exact zero causes division errors. At 10 Hz the result is indistinguishable
+from true DC.
+
+**Mesh reuse:** If the geometry is identical across frequencies, you can mesh
+once for the highest frequency (smallest δ) and reuse it. The fine mesh is
+conservative at lower frequencies.
+
+### 6.10 Validated reference results
 
 CFC-12-4 flat cable (4 × 12 AWG, alternating polarity, 13 ft):
 
@@ -527,6 +613,23 @@ CFC-12-4 flat cable (4 × 12 AWG, alternating polarity, 13 ft):
 | L (24 kHz) | 1.19 µH | 1.15 µH (Reed) | +3.7% |
 | Rac/Rdc (24 kHz) | 1.55 | ~1.53 (Reed) | — |
 | R_litz η=0.55 (24 kHz, Stranded) | 37.66 mΩ | 36.52 mΩ (R_dc/η) | +3.1% |
+
+Extended results across wire types (all at 13 ft / 3.963 m, 20 °C):
+
+| Configuration | R_dc (mΩ) | R @24k (mΩ) | R @36k (mΩ) | Rac/Rdc @24k | L_dc (µH) |
+|---|---|---|---|---|---|
+| CFC-10-4 +-+- (4×10AWG) | 12.65 | 24.29 | 29.14 | 1.92 | 1.307 |
+| CFC-12-4 +-+- (4×12AWG) | 20.12 | 31.27 | 37.67 | 1.55 | 1.312 |
+| CFC-14-4 +-+- (4×14AWG) | 32.03 | 41.51 | 48.59 | 1.30 | 1.318 |
+| CFC-16-4 +-+- (4×16AWG) | 51.02 | 58.84 | 65.11 | 1.15 | 1.320 |
+| Litz 660×36 pair (η=0.54) | 16.42 | 16.42 | 16.42 | 1.00 | 1.937 |
+| Litz 429×36 pair (η=0.54) | 25.32 | 25.32 | 25.32 | 1.00 | 2.031 |
+| 8 AWG hookup wire pair | 15.90 | 38.59 | 46.35 | 2.43 | 2.625 |
+
+Key observations for sanity-checking new models:
+- Litz Rac/Rdc should be **exactly 1.00** at all frequencies (Stranded coil type)
+- Thinner gauges have lower Rac/Rdc (less skin effect)
+- Wider conductor spacing → higher L (hookup's thick insulation → highest L)
 
 ---
 
@@ -741,29 +844,44 @@ Then open `results/fields.pvd` in ParaView.
 
 ---
 
-## 9. Windows-Specific Issues
+## 9. Platform-Specific Notes
 
 ### ELMERSOLVER_STARTINFO
 
 ElmerSolver on Windows requires an `ELMERSOLVER_STARTINFO` file in the working
-directory:
+directory. On Linux, ElmerSolver usually reads `case.sif` by default, but
+creating this file is harmless and ensures consistent behavior cross-platform:
 
 ```python
 Path("ELMERSOLVER_STARTINFO").write_text("case.sif\n1\n")
 ```
 
-Without this file, ElmerSolver fails silently or with a cryptic error.
+Without this file on Windows, ElmerSolver fails silently or with a cryptic error.
 
-### Absolute paths when running under `uv run`
+### Locating Elmer executables
 
 When launching ElmerSolver from a Python script run via `uv run`, the uv
-Python environment does NOT inherit the system PATH reliably. Use absolute
-paths:
+Python environment may not inherit the system PATH reliably. Use `shutil.which`
+with a platform-aware fallback:
 
 ```python
-ELMER_BIN = Path(r"C:\Program Files\Elmer 26.1-Release\bin")
-ELMER_SOLVER = str(ELMER_BIN / "ElmerSolver.exe")
-ELMER_GRID   = str(ELMER_BIN / "ElmerGrid.exe")
+import platform, shutil
+from pathlib import Path
+
+def find_elmer_bin() -> tuple[str, str]:
+    """Return (ElmerSolver, ElmerGrid) paths."""
+    solver = shutil.which("ElmerSolver")
+    grid = shutil.which("ElmerGrid")
+    if solver and grid:
+        return solver, grid
+    # Fallback: well-known install locations
+    if platform.system() == "Windows":
+        elmer_bin = Path(r"C:\Program Files\Elmer 26.1-Release\bin")
+        return str(elmer_bin / "ElmerSolver.exe"), str(elmer_bin / "ElmerGrid.exe")
+    # Linux/macOS: try /usr/bin or /usr/local/bin
+    return "ElmerSolver", "ElmerGrid"
+
+ELMER_SOLVER, ELMER_GRID = find_elmer_bin()
 ```
 
 ### `elmer-circuitbuilder` `rm` warning
@@ -791,8 +909,10 @@ is still generated correctly.
 | L is 5–10× too high | No opposing return current | Check circuit topology — return conductors need reversed pins |
 | `Number of Turns` type error | Used `Integer` instead of `Real` | Must be `Number of Turns = Real 1` |
 | CalcFields solver crashes | Missing Linear System Solver settings | Add `Linear System Solver = Iterative` + method + tolerance |
-| ElmerSolver can't find SIF | Missing ELMERSOLVER_STARTINFO (Windows) | Create file containing `case.sif\n1\n` |
+| ElmerSolver can't find SIF | Missing ELMERSOLVER_STARTINFO (esp. Windows) | Create file containing `case.sif\n1\n` (safe on all platforms) |
 | Litz R > solid R in FEM | Used Massive coil type with reduced σ | Use Stranded coil type instead (§6.3) |
+| Component current ≈ 0 in solver log | `Body Force = 1` missing on conductor bodies | Add `Body Force = 1` to every conductor body in SIF |
+| Solver crashes with "singular matrix" | Isolated conductor with no circuit coupling | Ensure every conductor body has a matching `ElmerComponent` |
 
 ---
 
@@ -807,3 +927,165 @@ is still generated correctly.
 - For impedance extraction: use **circuit-coupled conductors**, not Body Force
 - For litz wire: use **Stranded** coil type with η × σ_Cu, never Massive with
   reduced σ
+
+---
+
+## 12. Complete Script Template: 2D Impedance Extraction
+
+This is the canonical structure for a Python script that meshes a 2D conductor
+cross-section, runs Elmer at multiple frequencies, and extracts R + L. Every
+simulation script in this skill family follows this pattern — adapt the geometry
+section and keep everything else.
+
+```python
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#   "gmsh",
+#   "numpy",
+#   "meshio",
+#   "matplotlib",
+#   "elmer-circuitbuilder",
+# ]
+# ///
+"""
+<Title> FEM Study
+=================
+<Description of what conductors are being modeled.>
+
+Usage:
+  cd /path/to/working/dir
+  uv run this_script.py
+"""
+from __future__ import annotations
+
+import json, math, os, platform, re as _re, shutil, subprocess, sys, textwrap, time
+from pathlib import Path
+import numpy as np
+
+# ── Constants ──────────────────────────────────────────────────────────
+PI = math.pi
+MU0 = 4e-7 * PI
+SIGMA_CU = 5.96e7              # S/m, Cu @ 20 °C
+LEAD_M = 3.963                 # reference lead length (m)
+DOMAIN_R = 0.10                # air domain radius (m)
+FREQUENCIES = [10.0, 24_000.0, 36_000.0]
+
+def find_elmer_bin() -> tuple[str, str]:
+    """Return (ElmerSolver, ElmerGrid) paths, cross-platform."""
+    solver = shutil.which("ElmerSolver")
+    grid = shutil.which("ElmerGrid")
+    if solver and grid:
+        return solver, grid
+    if platform.system() == "Windows":
+        elmer_bin = Path(r"C:\Program Files\Elmer 26.1-Release\bin")
+        return str(elmer_bin / "ElmerSolver.exe"), str(elmer_bin / "ElmerGrid.exe")
+    return "ElmerSolver", "ElmerGrid"
+
+ELMER_SOLVER, ELMER_GRID = find_elmer_bin()
+
+BASE_DIR = Path(__file__).parent / "sim_output"
+
+
+def create_mesh(case_dir: Path, freq: float) -> None:
+    """Build Gmsh geometry + mesh, write mesh.msh."""
+    import gmsh
+    gmsh.initialize()
+    gmsh.model.add("model")
+    # ... geometry creation (addDisk, fragment, addPhysicalGroup) ...
+    # ... skin-depth-aware mesh sizing (Distance + Threshold fields) ...
+    gmsh.model.mesh.generate(2)
+    gmsh.write(str(case_dir / "mesh.msh"))
+    gmsh.finalize()
+
+
+def write_circuit(case_dir: Path) -> None:
+    """Generate circuit.definition with elmer-circuitbuilder."""
+    from elmer_circuitbuilder import (
+        ElmerComponent, I, R, generate_elmer_circuits, number_of_circuits,
+    )
+    c = number_of_circuits(1)
+    c[1].ref_node = 1
+    comps = []
+    comps.append(I("I1", 1, 2, 1.0 + 0j))
+    comps.append(R("Rshunt", 1, 2, 1e6))
+    comps.append(ElmerComponent("Go", 2, 3, 1, [1]))
+    comps.append(ElmerComponent("Ret", 1, 3, 2, [2]))
+    c[1].components.append(comps)
+    os.chdir(case_dir)
+    generate_elmer_circuits(c, str(case_dir / "circuit.definition"))
+
+
+def write_sif(case_dir: Path, omega: float) -> None:
+    """Write case.sif with the given angular frequency."""
+    sif = textwrap.dedent(f"""\
+    Check Keywords "Warn"
+    Header
+      Mesh DB "." "mesh"
+    End
+    Include "circuit.definition"
+    Simulation
+      Max Output Level = 5
+      Coordinate System = "Cartesian"
+      Simulation Type = Steady
+      Angular Frequency = Real {omega}
+      ...
+    End
+    ...
+    """)
+    (case_dir / "case.sif").write_text(sif)
+    (case_dir / "ELMERSOLVER_STARTINFO").write_text("case.sif\n1\n")
+
+
+def run_elmer(case_dir: Path) -> None:
+    """ElmerGrid mesh conversion + ElmerSolver."""
+    subprocess.run(
+        [ELMER_GRID, "14", "2", "mesh.msh", "-autoclean"],
+        cwd=case_dir, check=True,
+    )
+    subprocess.run(
+        [ELMER_SOLVER], cwd=case_dir, check=True,
+    )
+
+
+def postprocess(case_dir: Path, omega: float) -> tuple[float, float]:
+    """Parse scalars.dat → impedance → (R_per_m, L_per_m)."""
+    data = np.loadtxt(case_dir / "scalars.dat")
+    vals = data[-1] if data.ndim == 2 else data
+    col_map = {}
+    for line in open(case_dir / "scalars.dat.names"):
+        m = _re.match(r"\s*(\d+):\s*res:\s*(.*)", line)
+        if m:
+            col_map[m.group(2).strip().lower()] = int(m.group(1)) - 1
+    V = complex(vals[col_map["v_i1 re"]], vals[col_map["v_i1 im"]])
+    I = complex(vals[col_map["i_i1 re"]], vals[col_map["i_i1 im"]])
+    Z = V / I
+    return Z.real, Z.imag / omega if omega > 1 else Z.imag
+
+
+def main():
+    results = {}
+    for freq in FREQUENCIES:
+        omega = 2 * PI * freq
+        case_dir = BASE_DIR / f"f{freq:.0f}"
+        case_dir.mkdir(parents=True, exist_ok=True)
+        create_mesh(case_dir, freq)
+        write_circuit(case_dir)
+        write_sif(case_dir, omega)
+        run_elmer(case_dir)
+        R_m, L_m = postprocess(case_dir, omega)
+        results[str(freq)] = {
+            "R_total_mohm": round(R_m * LEAD_M * 1e3, 2),
+            "L_uH": round(L_m * LEAD_M * 1e6, 3),
+        }
+        print(f"  {freq:>8.0f} Hz  R={results[str(freq)]['R_total_mohm']:.2f} mΩ"
+              f"  L={results[str(freq)]['L_uH']:.3f} µH")
+    (BASE_DIR / "results.json").write_text(json.dumps(results, indent=2))
+
+if __name__ == "__main__":
+    main()
+```
+
+Adapt the `create_mesh()` function for your geometry. Everything else is
+reusable boilerplate. For multi-configuration sweeps, wrap `main()` in an
+outer loop over a list of config dataclasses.

@@ -42,6 +42,7 @@ transient setup, axisymmetric models, and ParaView post-processing.
 
 - **ElmerSolver** and **ElmerGrid** (required)
 - **Gmsh** or **Salome** for mesh generation (required)
+- **elmer-circuitbuilder** Python package (`pip install elmer-circuitbuilder`) — required for circuit-coupled simulations
 - **ParaView** for result inspection *(optional — GUI visualization tool, not invoked by the skill)*
 
 <details><summary><strong>Install prerequisites</strong></summary>
@@ -78,12 +79,16 @@ paraview results/fields.pvd
 
 1. **Workflow** - CAD/mesh to ElmerGrid to SIF to ElmerSolver to ParaView
 2. **Mesh conversion** - Gmsh and Salome import patterns
-3. **SIF anatomy** - core block structure and ID mapping
-4. **Transient setup** - `Variable Time`, BDF stepping, output timing
-5. **Axisymmetry** - `r-z` conventions and coordinate mapping
-6. **Output handling** - VTU export, field verification, PVD manifests
-7. **General gotchas** - body/boundary IDs, missing fields, boolean retagging
-8. **Worked example** - pulsed axisymmetric capacitor as a reusable pattern
+3. **Skin-depth meshing** - graded mesh sizing for AC problems
+4. **SIF anatomy** - core block structure and ID mapping
+5. **Transient setup** - `Variable Time`, BDF stepping, output timing
+6. **Axisymmetry** - `r-z` conventions and coordinate mapping
+7. **Circuit-coupled conductors** - impedance extraction (R, L) for solid and litz wire, go/return polarity, Massive vs Stranded coil types
+8. **Parametric sweeps** - frequency sweep pattern, multi-config studies, JSON results aggregation
+9. **Output handling** - VTU export, field verification, PVD manifests
+10. **Worked examples** - pulsed capacitor (axisym) and complete impedance extraction script template
+11. **Validated results** - reference table across 7 wire configurations at 3 frequencies
+12. **Debugging** - 15-row symptom→cause→fix checklist
 
 ## License
 

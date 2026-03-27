@@ -9,7 +9,7 @@ Elmer FEM setup, schematic drawing, and persistent memory across sessions.
 | Skill | Description | Prerequisites |
 |-------|-------------|---------------|
 | [circuit-sim](skills/circuit-sim/) | Drive ngspice for AC/DC/transient simulation, parse rawfiles, plot waveforms | ngspice, Python 3.10+, numpy, matplotlib |
-| [elmer-fem](skills/elmer-fem/) | Set up and run Elmer FEM workflows: mesh conversion, SIF authoring, transient/steady-state setup, and ParaView post-processing | ElmerSolver, ElmerGrid, Gmsh or Salome; ParaView *(optional)* |
+| [elmer-fem](skills/elmer-fem/) | Set up, run, and debug Elmer FEM workflows: mesh conversion, SIF authoring, circuit-coupled conductor impedance extraction (R, L), parametric frequency sweeps, Massive/Stranded coil types, and ParaView post-processing. Includes a complete script template and validated reference results. | ElmerSolver, ElmerGrid, Gmsh or Salome, elmer-circuitbuilder; ParaView *(optional)* |
 | [netlist-to-schematic](skills/netlist-to-schematic/) | Convert SPICE netlists into publication-quality Circuitikz schematic diagrams | pdflatex, pdftoppm, Python 3.10+ |
 | [memory](skills/memory/) | Bootstrap persistent memory files that survive compactions and session restarts | None |
 
@@ -66,6 +66,7 @@ Skill-specific tools:
 | ngspice | circuit-sim | `winget install --id=ngspice.ngspice` or [SourceForge](https://ngspice.sourceforge.io/) | `sudo apt install ngspice` / `brew install ngspice` |
 | ElmerSolver + ElmerGrid | elmer-fem | [Elmer Windows installer](https://www.elmerfem.org/blog/binaries/) | `sudo apt install elmer` / [elmerfem.org](https://www.elmerfem.org/blog/binaries/) |
 | Gmsh | elmer-fem | `winget install --id=GMSH.GMSH` | `sudo apt install gmsh` / `brew install gmsh` |
+| elmer-circuitbuilder *(pip)* | elmer-fem | `pip install elmer-circuitbuilder` | `pip install elmer-circuitbuilder` |
 | ParaView *(optional — GUI only)* | elmer-fem | [paraview.org](https://www.paraview.org/download/) | `sudo apt install paraview` / [paraview.org](https://www.paraview.org/download/) |
 | pdflatex (TeX) | netlist-to-schematic | `winget install --id=MiKTeX.MiKTeX` | `sudo apt install texlive-latex-extra texlive-pictures` |
 | pdftoppm (Poppler) | netlist-to-schematic | `winget install --id=oschwartz10612.Poppler` | `sudo apt install poppler-utils` |
