@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SKILL_NAME="technical-report"
+SKILL_NAME="robust-doc"
 
 usage() {
     echo "Usage: $0 [--uninstall] [--copilot|--codex|--all] [--skills-dir DIR]"

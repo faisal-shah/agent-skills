@@ -11,10 +11,16 @@ lives under `skills/<name>/` with its own SKILL.md, scripts, and documentation.
 ```
 skills/
 ├── circuit-sim/            ← ngspice simulation (AC/DC/transient, rawfile parsing, plotting)
+├── commit/                 ← Conventional Commits-style git commit messages
 ├── elmer-fem/              ← general Elmer FEM workflow (mesh → SIF → solve → visualize)
+├── mermaid/                ← Mermaid diagram validation (mmdc + ASCII preview)
+├── memory/                 ← persistent memory across sessions and compactions
 ├── netlist-to-schematic/   ← SPICE netlist → Circuitikz schematic diagrams
+├── playwright-cli/         ← browser automation via playwright-cli
+├── robust-doc/             ← adversarial technical document verification
+├── shellcheck/             ← shell script linting with shellcheck
 ├── technical-report/       ← DOCX report generation (python-docx, tables, figures, formatting)
-└── memory/                 ← persistent memory across sessions and compactions
+└── uv/                     ← Python uv tool (scripts, deps, builds)
 ```
 
 Each skill directory has its own `AGENTS.md` with skill-specific context.
@@ -58,6 +64,13 @@ Read the relevant skill's `AGENTS.md` before modifying that skill.
   needs to be applied as a boundary condition in a field simulation.
 - **memory** is orthogonal — it manages session persistence, not circuit
   engineering.
+- **commit** and **shellcheck** are development-workflow skills that apply
+  across all other skills.
+- **mermaid** is useful for documenting architecture in any skill's README.
+- **playwright-cli** is standalone — browser automation unrelated to other skills.
+- **robust-doc** applies to any technical document produced by other skills.
+- **uv** is the recommended script runner used by circuit-sim, netlist-to-schematic,
+  and technical-report.
 
 ## Testing Changes
 
@@ -74,6 +87,15 @@ uv run skills/circuit-sim/scripts/run_sim.py skills/circuit-sim/examples/rc_lowp
 uv run skills/netlist-to-schematic/scripts/compile_tex.py example.tex
 
 # memory: manual test — run `memory init` in a scratch directory
+
+# mermaid: validate a test diagram
+echo 'graph TD; A-->B;' > /tmp/test.mmd && ./skills/mermaid/tools/validate.sh /tmp/test.mmd
+
+# shellcheck: lint a script
+shellcheck -f gcc skills/mermaid/tools/validate.sh
+
+# commit, robust-doc, playwright-cli, uv: install and verify file layout
+./skills/commit/install.sh --skills-dir /tmp/skills-test && ls /tmp/skills-test/commit/
 ```
 
 ## Style
