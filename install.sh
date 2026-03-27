@@ -11,7 +11,7 @@ usage() {
     echo "Back-compat custom:    $0 /path/to/skills"
     echo "Uninstall all skills:  $0 --uninstall"
     echo ""
-    echo "Installs: circuit-sim, elmer-fem, netlist-to-schematic, memory"
+    echo "Installs: circuit-sim, elmer-fem, netlist-to-schematic, technical-report, memory"
     exit 1
 }
 

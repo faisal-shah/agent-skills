@@ -13,6 +13,7 @@ skills/
 ├── circuit-sim/            ← ngspice simulation (AC/DC/transient, rawfile parsing, plotting)
 ├── elmer-fem/              ← general Elmer FEM workflow (mesh → SIF → solve → visualize)
 ├── netlist-to-schematic/   ← SPICE netlist → Circuitikz schematic diagrams
+├── technical-report/       ← DOCX report generation (python-docx, tables, figures, formatting)
 └── memory/                 ← persistent memory across sessions and compactions
 ```
 

@@ -11,6 +11,7 @@ Elmer FEM setup, schematic drawing, and persistent memory across sessions.
 | [circuit-sim](skills/circuit-sim/) | Drive ngspice for AC/DC/transient simulation, parse rawfiles, plot waveforms | ngspice, Python 3.10+, numpy, matplotlib |
 | [elmer-fem](skills/elmer-fem/) | Set up, run, and debug Elmer FEM workflows: mesh conversion, SIF authoring, circuit-coupled conductor impedance extraction (R, L), parametric frequency sweeps, Massive/Stranded coil types, and ParaView post-processing. Includes a complete script template and validated reference results. | ElmerSolver, ElmerGrid, Gmsh or Salome, elmer-circuitbuilder; ParaView *(optional)* |
 | [netlist-to-schematic](skills/netlist-to-schematic/) | Convert SPICE netlists into publication-quality Circuitikz schematic diagrams | pdflatex, pdftoppm, Python 3.10+ |
+| [technical-report](skills/technical-report/) | Generate professional DOCX technical reports with python-docx: table formatting, alignment rules, image embedding, page layout, and matplotlib integration | Python 3.10+, python-docx; matplotlib *(optional)* |
 | [memory](skills/memory/) | Bootstrap persistent memory files that survive compactions and session restarts | None |
 
 ## Installation
@@ -118,6 +119,12 @@ agent-skills/
     │   ├── install.ps1
     │   └── scripts/
     │       └── compile_tex.py
+    ├── technical-report/   ← DOCX report generation skill
+    │   ├── SKILL.md
+    │   ├── AGENTS.md
+    │   ├── README.md
+    │   ├── install.sh
+    │   └── install.ps1
     └── memory/             ← persistent memory skill
         ├── SKILL.md
         ├── AGENTS.md

@@ -32,7 +32,7 @@ function Show-Usage {
     Write-Host "  Custom dir:     .\install.ps1 -SkillsDir C:\my\skills"
     Write-Host "  Uninstall all:  .\install.ps1 -Uninstall"
     Write-Host ""
-    Write-Host "Installs: circuit-sim, elmer-fem, netlist-to-schematic, memory"
+    Write-Host "Installs: circuit-sim, elmer-fem, netlist-to-schematic, technical-report, memory"
     exit 1
 }
 
