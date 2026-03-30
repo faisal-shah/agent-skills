@@ -23,6 +23,31 @@ reusable helper functions learned from production report generation workflows.
 
 ---
 
+## 0. Workflow
+
+Follow these steps to generate a report:
+
+1. **Plan** the report structure (sections, tables, figures) before writing code.
+2. **Create a Python script** at `/tmp/gen_<name>.py` with PEP 723 metadata:
+   ```python
+   # /// script
+   # requires-python = ">=3.10"
+   # dependencies = ["python-docx"]
+   # ///
+   ```
+   Add `"matplotlib"` to dependencies if generating plots.
+3. **Build the script** using the helpers from the sections below. Set the
+   output path at the top of the script (e.g., `OUT = "/tmp/Report_Name.docx"`).
+4. **Run** with `uv run /tmp/gen_<name>.py`.
+5. **Copy** the generated `.docx` to the user's project directory.
+6. **Clean up** the generation script from `/tmp/` if it is single-use.
+
+> **Key:** Compose the complete script in memory first, then write it to disk in
+> a single `create` tool call. Do not start the file creation before the script
+> content is fully composed — this prevents malformed tool invocations.
+
+---
+
 ## 1. Critical Alignment Rule
 
 **This is the #1 formatting mistake.** Get this wrong and every report looks
