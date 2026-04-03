@@ -168,6 +168,19 @@ vout_ac = data["v(out)"]           # AC: complex → use np.abs(), np.angle()
 mag_dB = 20 * np.log10(np.abs(vout_ac))
 ```
 
+### ⚠ Current Probe Naming Mismatch
+
+When saving inductor/device branch currents, the `.save` directive form and the
+rawfile key differ:
+
+| `.save` directive | rawfile key | Notes |
+|---|---|---|
+| `v(out)` | `v(out)` | Voltage probes: consistent |
+| `@l_p1[i]` | `i(@l_p1[i])` | Branch currents get `i()` wrapper |
+
+Always look up currents by the **rawfile key** (`i(...)` form), not the `.save`
+form. This mismatch causes `KeyError` crashes in analysis scripts.
+
 CLI: `uv run scripts/parse_rawfile.py output.raw [--json | --csv]`
 
 ---
@@ -238,17 +251,6 @@ for i in range(200):
     netlist = make_netlist(r, c)
     results.append(simulate(netlist))
 ```
-
-### Component Tolerances & Temperature Coefficients
-
-| Component | Tolerance | TC (ppm/°C) |
-|-----------|-----------|-------------|
-| Resistor (metal film) | ±1% | +25 to +100 |
-| Resistor (carbon) | ±5% | +200 to +500 |
-| Capacitor (C0G/NP0) | ±5% | ±30 |
-| Capacitor (X7R) | ±10% | ±15% over range |
-| Capacitor (electrolytic) | ±20% | — |
-| Inductor (ferrite) | ±10% | -400 to -800 |
 
 ---
 
@@ -325,6 +327,20 @@ KTR   Lpri Lsec 0.95
 
 Both inductors support `ic=` for initial current (requires `UIC` on `.tran`).
 Define both `L` elements **before** the `K` statement.
+
+For multi-winding transformers, use a single `K` statement with all inductors
+and the upper-triangle coupling matrix: `K_all L1 L2 L3 k12 k13 k23`.
+
+### Differential Monitor Source
+
+For differential voltage measurements, add a non-loading VCVS:
+
+```spice
+E_mon  vdiff  0  node_p  node_n  1    * V(vdiff) = V(node_p) - V(node_n)
+```
+
+Simplifies `.meas` and plotting — use `V(vdiff)` instead of computing the
+difference everywhere.
 
 ### V-Controlled Switch Patterns
 
@@ -440,20 +456,26 @@ Vpulse in 0 PULSE(0 5 0 10n 10n 10u 100u)
 | AC gain > 0 dB for passives | Phase/complex issue | Check `np.abs()` not `.real` |
 | `.meas` results missing | `-b -r` suppresses `.meas` | Use `run_sim.py` (auto-handled) or `.control` block with `run` + `write` |
 | `ic=` ignored, all zeros | `.tran` without `UIC` | Add `UIC` to `.tran` line (`run_sim.py` warns automatically) |
+| `PULSE` DC value warning | Informational only — V1 ≠ DC OP | Ignore; simulation proceeds correctly. Common on trigger sources |
+| `KeyError` on current data | `.save @L[i]` → rawfile key is `i(@L[i])` | Look up by rawfile key with `i()` wrapper (see §3) |
 
 ### Convergence Helpers
 
-Escalation order: `method=gear` → `reltol=0.003` → `itl4=50` → relax `abstol`/`vntol`.
+Escalation order: `method=gear` → `maxord=2` → `reltol=0.003` → relax
+`abstol`/`vntol` → `itl4=100` → `gmin`/`cshunt`.
 
 | Option | Default | When to change |
 |--------|---------|----------------|
 | `method=gear` | trapezoidal | Stiff circuits: switching, high-Q, large L/C ratios |
+| `maxord` | 6 | Set to `2` for stiff switching — BDF-2 is more stable than higher orders through abrupt transients |
 | `reltol` | 0.001 | Relax to 0.003 if "timestep too small" |
-| `itl1` / `itl4` | 100 / 10 | Increase to 300/50 if convergence iterations fail |
-| `abstol` / `vntol` | 1e-12 / 1e-6 | Relax for large-signal circuits (kV/kA range) |
+| `itl1` / `itl4` | 100 / 10 | Increase to 300/100 for synchronized multi-stage switching |
+| `abstol` / `vntol` | 1e-12 / 1e-6 | Relax for large-signal circuits (kV/kA range): 1e-9 / 1e-3 |
+
+**Proven config for stiff pulsed-power (8-stage, kV/kA):**
 
 ```spice
-.options reltol=0.003 method=gear itl4=50
+.options method=gear maxord=2 reltol=3e-3 abstol=1e-9 vntol=1e-3 itl1=300 itl4=100
 ```
 
 ---
@@ -470,5 +492,14 @@ Usage:
 uv run scripts/run_sim.py circuit.cir --plot bode.png
 uv run scripts/parse_rawfile.py output.raw [--json | --csv]
 ```
+
+### Netlist Instrumentation Pattern
+
+For custom analysis suites, instrument the design netlist programmatically:
+replace `.options` with analysis-specific solver settings, replace `.save` with
+the needed signal list, and inject `.control`/`run`/`write`/`.endc` before
+`.end`. Write the instrumented copy to a separate file — never overwrite the
+design netlist. This keeps different analysis modes (time-domain, AC sweep,
+parameter scan) independent.
 
 

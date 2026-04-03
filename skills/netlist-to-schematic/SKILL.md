@@ -84,6 +84,28 @@ spacing, unreadable topology):
   ```
 - Typical stages: Source, Switch, Transformer, Output, Load.
 
+### Multi-stage layouts (N repeated stages)
+- Each stage is a **horizontal row** at a computed y-level (top to bottom).
+- Use `\foreach` + `\pgfmathsetmacro` to avoid writing N× the LaTeX:
+  ```latex
+  \foreach \n in {1,...,8} {
+    \pgfmathsetmacro{\yb}{28.5 - (\n-1)*3.5}
+    \pgfmathsetmacro{\yt}{\yb + 2.0}
+    \draw (0.5, \yt) to[C] (0.5, \yb);
+    \draw (0.5, \yb) -- ++(0,-0.3) node[ground]{};
+  }
+  ```
+- **Critical:** Use `{\expr}` braces for arithmetic in TikZ coordinates:
+  `(0.5, {\yt-0.3})` not `(0.5, \yt-0.3)`.
+- Inter-stage series connections use U-shaped jogs through a bus column.
+- Full annotations on stage 1 only; stages 2–N show minimal labels.
+
+### Ground symbols
+- For **≤5 ground connections**: a shared ground bus is fine.
+- For **many grounds** (e.g., 16+ in a multi-stage system): use individual
+  `node[ground]{}` at each point. Do not route long wires to a shared bus —
+  the spaghetti of wires makes the schematic unreadable.
+
 ### Transformer placement
 - Draw primary and secondary windings **side by side vertically** with 2 units
   horizontal separation.
@@ -120,6 +142,10 @@ spacing, unreadable topology):
 - `border=20pt` — prevents clipping on large circuits (use 10pt for small ones)
 - `bipoles/length=1.2cm` — keeps components readable in dense schematics
 - `scale=0.85` — fits more on the page without sacrificing readability
+
+**Color definitions** — avoid TikZ reserved words (`out`, `in`, `at`, `to`,
+`above`, `below`, `left`, `right`) as color names — they conflict with TikZ
+keys. Use prefixed names like `pri`, `sec`, `ogrn` (not `out`).
 
 ---
 
@@ -159,25 +185,30 @@ l=$12\,\mu\mathrm{F}$
 This is the most common source of errors. Use this exact pattern:
 
 ```latex
-% Primary winding (top to bottom)
-\draw (6,6) to[cute inductor, l=$L_p$] (6,3);
-% Secondary winding (mirrored, 2 units right)
-\draw (8,6) to[cute inductor, l_=$L_s$, mirror] (8,3);
+% Primary winding (left, top to bottom) — mirror flips bumps toward coupling gap
+\draw (6,6) to[cute inductor, l=$L_p$, mirror] (6,3);
+% Secondary winding (right, top to bottom) — default bumps face left toward gap
+\draw (8,6) to[cute inductor, l_=$L_s$] (8,3);
 % Core lines (two parallel vertical lines between windings)
 \draw[thick] (6.8,3.2) -- (6.8,5.8);
 \draw[thick] (7.2,3.2) -- (7.2,5.8);
-% Polarity dots (top-left of primary, top-right of secondary)
-\node[circle, fill, inner sep=1.3pt] at (5.75,5.7) {};
-\node[circle, fill, inner sep=1.3pt] at (8.25,5.7) {};
+% Polarity dots — OUTER FACE of each winding (away from coupling gap)
+\node[circle, fill, inner sep=1.3pt] at (5.75,5.7) {};   % left of primary
+\node[circle, fill, inner sep=1.3pt] at (8.25,5.7) {};   % right of secondary
 % Coupling coefficient annotation
 \node[font=\small, red!60!black] at (7,2.5) {$k = 0.95$};
 ```
 
 Key points:
-- Primary uses `cute inductor`, secondary adds `mirror` to flip the winding.
+- **`mirror` depends on position, not role.** `mirror` goes on whichever winding
+  needs bumps facing **toward** the coupling gap. For primary-left/secondary-right:
+  `mirror` goes on the **primary**. If secondary is left, mirror goes on secondary.
+- **Polarity dots go on the OUTER face** — away from the coupling gap, not
+  between windings. This follows EE convention and prevents dots from merging
+  visually with core lines.
 - Core lines are 0.4 units apart, centered between the windings.
-- Polarity dots go at the **top** of each winding (same-side = additive coupling).
-- Use `l_=` (with underscore) on the secondary to place label on the right side.
+- Use `l_=` (underscore suffix) on the secondary to place label on the right side.
+- For **air-core** transformers, use dashed core lines instead of solid.
 
 ### Switch with control annotation
 
@@ -264,8 +295,8 @@ components, stage boxes, ground bus, and node labels.
       to[R, l=$R_{sw}$] (6,6);            % Switch resistance
 
 % === Transformer ===
-\draw (6,6) to[cute inductor, l=$L_p$] (6,3);
-\draw (8,6) to[cute inductor, l_=$L_s$, mirror] (8,3);
+\draw (6,6) to[cute inductor, l=$L_p$, mirror] (6,3);
+\draw (8,6) to[cute inductor, l_=$L_s$] (8,3);
 \draw[thick] (6.8,3.2) -- (6.8,5.8);     % Core line 1
 \draw[thick] (7.2,3.2) -- (7.2,5.8);     % Core line 2
 \node[circle, fill, inner sep=1.3pt] at (5.75,5.7) {};   % Dot primary
@@ -315,6 +346,15 @@ This example demonstrates every technique from §3–§7:
 
 ## 9. Compile → View → Iterate
 
+**Expect 3–5 iterations** for complex schematics. Each compile-view-fix cycle
+takes ~30 seconds. This is normal — treat it as the standard workflow.
+
+### Typical iteration pattern
+
+- **V1–V2:** Topology and layout — may need reorientation, fix compilation bugs
+- **V3–V4:** Polish — fix polarity dots, labels, annotation positions
+- **V5:** Final quality — ready for review
+
 ### Compile
 
 ```bash
@@ -363,3 +403,6 @@ After viewing the PNG, verify:
 | Switch has no control indication | Only drew the switch body | Add dashed annotation arrow (§6) |
 | `pdflatex` fails silently | Unescaped special characters | Escape `_`, `%`, `&` in text nodes |
 | Empty/white PNG output | LaTeX compiled but circuit outside bounding box | Check coordinates are consistent |
+| `pgfkeys Error: key '/tikz/out' requires a value` | Color name collides with TikZ key | Rename color (e.g., `out`→`ogrn`); avoid `in`, `at`, `to` etc. |
+| Transformer bumps face wrong direction | `mirror` on wrong winding | `mirror` goes on winding whose bumps must face the coupling gap |
+| Polarity dots between windings | Dots placed on gap side | Dots go on **outer face** (away from coupling gap) |
