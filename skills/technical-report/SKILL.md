@@ -50,7 +50,7 @@ reports/<report-slug>/
   report_manifest.json
 ```
 
-Final responses should report the DOCX path, optional PDF/path previews,
+Final responses should report the DOCX path, optional PDF/page previews,
 generator script path, figure/table/caption counts, source documents used, and
 known limitations. If working on Windows files through WSL, show the final path
 in the user's Windows-facing location when useful.
@@ -74,6 +74,24 @@ in the user's Windows-facing location when useful.
   PowerShell heredocs; handle Word-open `PermissionError` by saving an
   `_updated` file and saying so.
 
+## Cross-Platform Defaults
+
+The common path is intentionally portable across Linux, WSL, and Windows:
+
+- Use Python scripts with `pathlib.Path`; avoid shell-specific path assembly in
+  report generators.
+- Run generators with `uv run reports/<report-slug>/generate_report.py` on
+  Linux/WSL, or the equivalent standalone script invocation on Windows.
+- Use `install.sh` on Linux/macOS/WSL and `install.ps1` on Windows; both install
+  `SKILL.md` and `references/`.
+- When working on `/mnt/c/...` paths from WSL, keep artifacts in the Windows
+  project tree and report the Windows-facing output path when useful.
+- Treat PDF export and page previews as capability-based: use LibreOffice,
+  Word automation, or PDF renderers when present; otherwise keep structural DOCX
+  QA and state which visual checks were skipped.
+- Avoid inline PowerShell heredocs and long one-liners on Windows. Write a
+  standalone `.py` file and run it.
+
 ## Canonical Generator Skeleton
 
 Create `generate_report.py` inside the report package and adapt this skeleton.
@@ -91,7 +109,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
