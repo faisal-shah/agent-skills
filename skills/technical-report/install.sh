@@ -13,7 +13,7 @@ usage() {
     echo "Install:    $0 /path/to/skills"
     echo "Uninstall:  $0 --uninstall               # removes from both default user dirs"
     echo ""
-    echo "Creates <skills-directory>/$SKILL_NAME/ with SKILL.md."
+    echo "Creates <skills-directory>/$SKILL_NAME/ with SKILL.md and references/."
     exit 1
 }
 
@@ -29,8 +29,9 @@ install_to() {
     local skills_root="$1"
     local target="$skills_root/$SKILL_NAME"
 
-    mkdir -p "$target"
+    mkdir -p "$target/references"
     cp "$SCRIPT_DIR/SKILL.md" "$target/"
+    cp "$SCRIPT_DIR/references/"*.md "$target/references/"
     echo "Installed $SKILL_NAME to $target"
 }
 

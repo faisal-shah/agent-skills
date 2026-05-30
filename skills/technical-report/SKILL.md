@@ -1,501 +1,506 @@
 ---
 name: technical-report
 description: >
-  Generate professional DOCX technical reports with python-docx. Use when asked
-  to create Word documents, format tables, embed figures, or build report
-  generation scripts. Covers styling, alignment rules, page layout, and
-  reusable helper patterns.
+  Generate professional, reproducible DOCX technical reports with python-docx;
+  update existing Word reports safely; create short executive PDFs when DOCX is
+  not required. Use for report packages, tables, figures, captions, previews,
+  evidence tracking, and QA.
 ---
 
-# Technical Report Generation Skill
+# Technical Report Skill
 
-Generate professional, script-reproducible DOCX technical reports using
-`python-docx`. This skill captures formatting patterns, alignment rules, and
-reusable helper functions learned from production report generation workflows.
+Use this skill when the deliverable is a polished technical report, not just a
+document file. The agent's job is to produce a reproducible report package:
+source evidence, generated figures, generator script, DOCX/PDF outputs, and QA
+results that another agent can rerun.
 
-> **Regenerable reports:** Always generate reports from a Python script — never
-> by hand-editing a `.docx`. This makes reports reproducible when data changes.
+## Decision Flow
 
-## Prerequisites
+1. **New technical DOCX?** Build a report package and generate the DOCX from
+   `generate_report.py`. This is the default path.
+2. **Existing DOCX edit?** Preserve the original, inspect structure first, then
+   make scripted targeted edits. Read `references/edit_existing.md`.
+3. **Executive PDF only?** Use a short `fpdf2` generator when Word fidelity is
+   unnecessary or DOCX tooling is blocked. Read `references/pdf_fallback.md`.
+4. **Figures required?** Generate figure files before DOCX assembly, run a
+   visual/technical critique, then embed only reviewed assets. Read
+   `references/figures.md` for complex plots, screenshots, equations, or page
+   previews.
+5. **Unusual DOCX formatting?** Keep the main skeleton as the source of truth;
+   read `references/docx_helpers.md` for helper variants only when needed.
 
-- Python 3.10+ with `python-docx` (`pip install python-docx`)
-- For PEP 723 scripts: `uv run` with inline dependency metadata
+Do not hand-edit a generated `.docx`. If a report is durable or likely to be
+revised, keep the script and inputs beside the output.
 
----
+## Report Package Contract
 
-## 0. Workflow
+For durable deliverables, create a package in the user's workspace, not in
+`/tmp`. Use `/tmp` only for disposable experiments.
 
-Follow these steps to generate a report:
-
-1. **Plan** the report structure (sections, tables, figures) before writing code.
-2. **Create a Python script** at `/tmp/gen_<name>.py` with PEP 723 metadata:
-   ```python
-   # /// script
-   # requires-python = ">=3.10"
-   # dependencies = ["python-docx"]
-   # ///
-   ```
-   Add `"matplotlib"` to dependencies if generating plots.
-3. **Build the script** using the helpers from the sections below. Set the
-   output path at the top of the script (e.g., `OUT = "/tmp/Report_Name.docx"`).
-4. **Run** with `uv run /tmp/gen_<name>.py`.
-5. **Copy** the generated `.docx` to the user's project directory.
-6. **Clean up** the generation script from `/tmp/` if it is single-use.
-
-> **Key:** Compose the complete script in memory first, then write it to disk in
-> a single `create` tool call. Do not start the file creation before the script
-> content is fully composed — this prevents malformed tool invocations.
-
----
-
-## 1. Critical Alignment Rule
-
-**This is the #1 formatting mistake.** Get this wrong and every report looks
-amateurish:
-
-| Element | Alignment | Constant |
-|---------|-----------|----------|
-| Body paragraphs | **Justified** | `WD_ALIGN_PARAGRAPH.JUSTIFY` |
-| Bullet points / list items | **Left** | `WD_ALIGN_PARAGRAPH.LEFT` |
-| Figure captions | **Center, italic** | `WD_ALIGN_PARAGRAPH.CENTER` |
-| Table header cells | **Center** | `WD_ALIGN_PARAGRAPH.CENTER` |
-| Table numeric cells | **Center** | `WD_ALIGN_PARAGRAPH.CENTER` |
-| Table text cells (first col) | **Left** | `WD_ALIGN_PARAGRAPH.LEFT` |
-| Headings | **Left** (default) | — |
-
-**⚠ NEVER justify bullet points or list items.** Justified text in short lines
-creates ugly word spacing. Lists must ALWAYS use LEFT alignment:
-
-```python
-def bullet_left(doc, text):
-    """Add a left-aligned bullet point. NEVER use JUSTIFY for lists."""
-    p = doc.add_paragraph(style='List Bullet')
-    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    p.paragraph_format.space_after = Pt(2)
-    p.paragraph_format.space_before = Pt(0)
-    p.clear()
-    r = p.add_run(text)
-    r.font.size = Pt(10.5)
-    return p
+```text
+reports/<report-slug>/
+  generate_report.py
+  data/
+  source_docs/
+  figs/
+  page_previews/
+  Report_Name.docx
+  Report_Name_preview.pdf        # if export tools exist
+  figure_review_log.txt
+  report_manifest.json
 ```
 
----
+Final responses should report the DOCX path, optional PDF/path previews,
+generator script path, figure/table/caption counts, source documents used, and
+known limitations. If working on Windows files through WSL, show the final path
+in the user's Windows-facing location when useful.
 
-## 2. Standard Imports
+## Agent Rules
 
-```python
-from docx import Document
-from docx.shared import Inches, Pt, Cm, RGBColor, Emu
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.oxml.ns import qn, nsdecls
-from docx.oxml import parse_xml
-```
+- **Evidence first:** read/download the source documents and data before writing
+  conclusions. Cite source file paths in the generator or manifest.
+- **Regenerate, do not patch:** centralize assumptions, constants, source paths,
+  figure metadata, expected counts, key phrases, and banned stale phrases at the
+  top of the generator.
+- **Fail loudly for missing assets:** raise on missing figures or source files
+  unless the user explicitly asks for placeholders.
+- **Alignment rule:** body paragraphs are justified; bullets and numbered lists
+  are always left-aligned. Never justify list items.
+- **Figures are separate artifacts:** generate them first, review them, then
+  embed them. Every figure needs nearby explanatory text and a numbered caption.
+- **QA is mandatory:** reopen the DOCX, count structure, scan for stale text,
+  verify assets, and export/render previews when tools are available.
+- **Windows/Office friction:** prefer standalone `.py` files over inline
+  PowerShell heredocs; handle Word-open `PermissionError` by saving an
+  `_updated` file and saying so.
 
----
+## Canonical Generator Skeleton
 
-## 3. Color Constants
-
-```python
-DARK_BLUE  = RGBColor(0x1F, 0x38, 0x64)   # title text
-HDR_BLUE   = RGBColor(0x44, 0x72, 0xC4)   # table header background
-WHITE      = RGBColor(0xFF, 0xFF, 0xFF)   # table header text
-BLACK      = RGBColor(0x00, 0x00, 0x00)
-```
-
----
-
-## 4. Table Formatting Helpers
-
-### Cell shading
-
-```python
-def set_cell_shading(cell, hex_color):
-    """Set cell background color. hex_color without '#', e.g. '4472C4'."""
-    shading = parse_xml(f'<w:shd {nsdecls("w")} w:fill="{hex_color}"/>')
-    cell._tc.get_or_add_tcPr().append(shading)
-```
-
-### Cell borders
-
-```python
-def set_cell_borders(cell, sz="4", color="000000"):
-    tc = cell._tc
-    tcPr = tc.get_or_add_tcPr()
-    borders = parse_xml(
-        f'<w:tcBorders {nsdecls("w")}>'
-        f'  <w:top    w:val="single" w:sz="{sz}" w:space="0" w:color="{color}"/>'
-        f'  <w:left   w:val="single" w:sz="{sz}" w:space="0" w:color="{color}"/>'
-        f'  <w:bottom w:val="single" w:sz="{sz}" w:space="0" w:color="{color}"/>'
-        f'  <w:right  w:val="single" w:sz="{sz}" w:space="0" w:color="{color}"/>'
-        f'</w:tcBorders>'
-    )
-    tcPr.append(borders)
-```
-
-### Header row styling
-
-```python
-def style_header_row(row):
-    """Blue background, white bold centered text."""
-    for cell in row.cells:
-        set_cell_shading(cell, "4472C4")
-        set_cell_borders(cell)
-        for p in cell.paragraphs:
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            for r in p.runs:
-                r.font.color.rgb = WHITE
-                r.font.bold = True
-                r.font.size = Pt(9)
-```
-
-### Complete table builder
-
-```python
-def add_table(doc, headers, rows, col_widths=None, first_col_left=False):
-    """Create a professionally-styled table with header and data rows."""
-    table = doc.add_table(rows=1 + len(rows), cols=len(headers))
-    table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    table.autofit = False
-    # Header
-    for i, h in enumerate(headers):
-        table.rows[0].cells[i].text = h
-    style_header_row(table.rows[0])
-    # Data rows
-    for ri, row_data in enumerate(rows):
-        for ci, val in enumerate(row_data):
-            cell = table.rows[ri + 1].cells[ci]
-            cell.text = str(val)
-            align = (WD_ALIGN_PARAGRAPH.LEFT if (ci == 0 and first_col_left)
-                     else WD_ALIGN_PARAGRAPH.CENTER)
-            set_cell_borders(cell)
-            for p in cell.paragraphs:
-                p.alignment = align
-                for r in p.runs:
-                    r.font.size = Pt(9)
-    # Column widths
-    if col_widths:
-        for row in table.rows:
-            for ci, w in enumerate(col_widths):
-                row.cells[ci].width = Inches(w)
-    return table
-```
-
----
-
-## 5. Paragraph Helpers
-
-### Justified body text
-
-```python
-def para_justified(doc, text, bold_phrases=None):
-    """Add a justified paragraph. Optionally bold specific phrases."""
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-    p.paragraph_format.space_after = Pt(6)
-    p.paragraph_format.space_before = Pt(0)
-    if bold_phrases:
-        add_rich_text(p, text, bold_phrases)
-    else:
-        run = p.add_run(text)
-        run.font.size = Pt(10.5)
-    return p
-```
-
-### Rich text (inline bold phrases)
-
-```python
-def add_rich_text(p, text, bold_phrases):
-    """Render text with specific phrases in bold."""
-    remaining = text
-    while remaining:
-        earliest_pos = len(remaining)
-        earliest_phrase = None
-        for bp in bold_phrases:
-            idx = remaining.find(bp)
-            if idx != -1 and idx < earliest_pos:
-                earliest_pos = idx
-                earliest_phrase = bp
-        if earliest_phrase is None:
-            r = p.add_run(remaining)
-            r.font.size = Pt(10.5)
-            break
-        if earliest_pos > 0:
-            r = p.add_run(remaining[:earliest_pos])
-            r.font.size = Pt(10.5)
-        r = p.add_run(earliest_phrase)
-        r.font.size = Pt(10.5)
-        r.font.bold = True
-        remaining = remaining[earliest_pos + len(earliest_phrase):]
-```
-
----
-
-## 6. Images and Figures
-
-### Centered image with caption
-
-```python
-def add_image(doc, path, width_inches):
-    """Add a centered image. Gracefully handles missing files."""
-    import os
-    if not os.path.isfile(path):
-        p = doc.add_paragraph(f"[IMAGE NOT FOUND: {path}]")
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        return
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = p.add_run()
-    run.add_picture(path, width=Inches(width_inches))
-
-
-def add_caption(doc, text):
-    """Add an italic, centered figure caption."""
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before = Pt(4)
-    p.paragraph_format.space_after = Pt(12)
-    run = p.add_run(text)
-    run.italic = True
-    run.font.size = Pt(9)
-    return p
-```
-
-### Image sizing guidelines
-
-| Content type | Recommended width | Notes |
-|---|---|---|
-| Full-width chart (bar, line) | 6.0–6.5" | Fills page with margins |
-| Configuration diagram | 5.0–5.5" | Slightly smaller to avoid overflow |
-| Detail diagram (cross-section) | 4.5–5.5" | Depends on aspect ratio |
-| Multi-panel plot | 5.5–6.0" | Watch for label clipping |
-
-**⚠ Page overflow:** Standard letter paper is 8.5" wide with 1" margins =
-6.5" printable. Images wider than 6.5" will overflow. Always check the aspect
-ratio — a tall image at 6.5" wide may push off the bottom of the page.
-
----
-
-## 7. Page Breaks
-
-Insert page breaks before major sections, especially those with figures:
-
-```python
-from docx.oxml.ns import qn
-
-def page_break(doc):
-    """Insert a page break."""
-    p = doc.add_paragraph()
-    run = p.add_run()
-    run._r.append(parse_xml(f'<w:br {nsdecls("w")} w:type="page"/>'))
-    return p
-```
-
-Or simply:
-
-```python
-doc.add_page_break()
-```
-
-**When to insert page breaks:**
-- Before each Results section (figures should start at top of page)
-- Before Appendix tables
-- Before any section containing a full-width figure
-- NOT between paragraphs within the same section
-
----
-
-## 8. Title Block Pattern
-
-```python
-def add_title_block(doc, title, subtitle, date_line):
-    """Professional report title block."""
-    # Title
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_after = Pt(4)
-    run = p.add_run(title)
-    run.font.size = Pt(22)
-    run.font.bold = True
-    run.font.color.rgb = DARK_BLUE
-
-    # Subtitle
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_after = Pt(4)
-    run = p.add_run(subtitle)
-    run.font.size = Pt(13)
-    run.italic = True
-
-    # Date line
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_after = Pt(24)
-    run = p.add_run(date_line)
-    run.font.size = Pt(11)
-```
-
----
-
-## 9. Complete Script Skeleton
+Create `generate_report.py` inside the report package and adapt this skeleton.
+It is intentionally self-contained for the common path; add `matplotlib` or
+other dependencies only when the script generates figures.
 
 ```python
 # /// script
 # requires-python = ">=3.10"
 # dependencies = ["python-docx"]
 # ///
-"""Generate <Report Title>.docx"""
+"""Generate Report_Name.docx from local evidence, data, and figures."""
 
+from __future__ import annotations
+
+import json
 import os
+import shutil
+from dataclasses import dataclass, asdict
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Iterable, Sequence
+
 from docx import Document
-from docx.shared import Inches, Pt, RGBColor
+from docx.enum.section import WD_ORIENT
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.oxml.ns import nsdecls
 from docx.oxml import parse_xml
+from docx.oxml.ns import nsdecls
+from docx.shared import Inches, Pt, RGBColor
 
-BASE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(BASE, "Report_Title.docx")
 
-# ... paste helpers from §4–§8 above ...
+PACKAGE = Path(__file__).resolve().parent
+DATA_DIR = PACKAGE / "data"
+SOURCE_DIR = PACKAGE / "source_docs"
+FIG_DIR = PACKAGE / "figs"
+PREVIEW_DIR = PACKAGE / "page_previews"
 
-def main():
+REPORT_TITLE = "Report Name"
+REPORT_SUBTITLE = "Technical report subtitle"
+OUTPUT_DOCX = PACKAGE / "Report_Name.docx"
+MANIFEST = PACKAGE / "report_manifest.json"
+
+SOURCE_DOCS = [
+    SOURCE_DIR / "source_document.pdf",
+]
+EXPECTED_IMAGES = 1
+EXPECTED_TABLES = 1
+KEY_PHRASES = ["Report Name"]
+BANNED_PHRASES = ["old estimate", "placeholder", "[IMAGE NOT FOUND"]
+
+DARK_BLUE = RGBColor(0x1F, 0x38, 0x64)
+HEADER_BLUE = "4472C4"
+WHITE = RGBColor(0xFF, 0xFF, 0xFF)
+
+
+@dataclass(frozen=True)
+class FigureSpec:
+    path: Path
+    caption: str
+    width_in: float = 6.25
+
+
+FIGURES = [
+    FigureSpec(FIG_DIR / "figure_1.png", "Figure caption."),
+]
+
+
+def require_files(paths: Iterable[Path]) -> None:
+    missing = [str(path) for path in paths if not path.exists()]
+    if missing:
+        raise FileNotFoundError("Missing required files:\n" + "\n".join(missing))
+
+
+def set_cell_shading(cell, hex_color: str) -> None:
+    shading = parse_xml(f'<w:shd {nsdecls("w")} w:fill="{hex_color}"/>')
+    cell._tc.get_or_add_tcPr().append(shading)
+
+
+def set_cell_borders(cell, size: str = "4", color: str = "000000") -> None:
+    borders = parse_xml(
+        f'<w:tcBorders {nsdecls("w")}>'
+        f'<w:top w:val="single" w:sz="{size}" w:space="0" w:color="{color}"/>'
+        f'<w:left w:val="single" w:sz="{size}" w:space="0" w:color="{color}"/>'
+        f'<w:bottom w:val="single" w:sz="{size}" w:space="0" w:color="{color}"/>'
+        f'<w:right w:val="single" w:sz="{size}" w:space="0" w:color="{color}"/>'
+        "</w:tcBorders>"
+    )
+    cell._tc.get_or_add_tcPr().append(borders)
+
+
+def configure_doc(doc: Document) -> None:
+    section = doc.sections[0]
+    section.orientation = WD_ORIENT.PORTRAIT
+    section.page_width = Inches(8.5)
+    section.page_height = Inches(11)
+    section.top_margin = Inches(0.75)
+    section.bottom_margin = Inches(0.75)
+    section.left_margin = Inches(0.75)
+    section.right_margin = Inches(0.75)
+
+    styles = doc.styles
+    styles["Normal"].font.name = "Aptos"
+    styles["Normal"].font.size = Pt(10.5)
+    for name in ("Heading 1", "Heading 2", "Heading 3"):
+        styles[name].font.name = "Aptos"
+        styles[name].font.color.rgb = DARK_BLUE
+
+
+def add_title_block(doc: Document, title: str, subtitle: str) -> None:
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_after = Pt(4)
+    r = p.add_run(title)
+    r.font.size = Pt(22)
+    r.font.bold = True
+    r.font.color.rgb = DARK_BLUE
+
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_after = Pt(4)
+    r = p.add_run(subtitle)
+    r.font.size = Pt(13)
+    r.italic = True
+
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_after = Pt(18)
+    r = p.add_run(datetime.now().strftime("%B %d, %Y"))
+    r.font.size = Pt(10.5)
+
+
+def add_body(doc: Document, text: str) -> None:
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    p.paragraph_format.space_after = Pt(6)
+    r = p.add_run(text)
+    r.font.size = Pt(10.5)
+
+
+def add_bullet(doc: Document, text: str) -> None:
+    p = doc.add_paragraph(style="List Bullet")
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p.paragraph_format.space_after = Pt(2)
+    p.paragraph_format.space_before = Pt(0)
+    r = p.add_run(text)
+    r.font.size = Pt(10.5)
+
+
+def add_caption(doc: Document, text: str) -> None:
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(4)
+    p.paragraph_format.space_after = Pt(10)
+    r = p.add_run(text)
+    r.italic = True
+    r.font.size = Pt(9)
+
+
+def add_figure(doc: Document, spec: FigureSpec, number: int) -> None:
+    if not spec.path.exists():
+        raise FileNotFoundError(f"Missing figure: {spec.path}")
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.add_run().add_picture(str(spec.path), width=Inches(spec.width_in))
+    add_caption(doc, f"Figure {number}. {spec.caption}")
+
+
+def add_table(
+    doc: Document,
+    caption: str,
+    headers: Sequence[str],
+    rows: Sequence[Sequence[object]],
+    *,
+    first_col_left: bool = False,
+    col_widths: Sequence[float] | None = None,
+) -> None:
+    if any(len(row) != len(headers) for row in rows):
+        raise ValueError("Every table row must match the header count.")
+
+    table = doc.add_table(rows=1 + len(rows), cols=len(headers))
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.autofit = False
+
+    for index, header in enumerate(headers):
+        cell = table.rows[0].cells[index]
+        cell.text = header
+        set_cell_shading(cell, HEADER_BLUE)
+        set_cell_borders(cell)
+        cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+        for paragraph in cell.paragraphs:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            for run in paragraph.runs:
+                run.font.bold = True
+                run.font.color.rgb = WHITE
+                run.font.size = Pt(9)
+
+    for row_index, row_data in enumerate(rows, start=1):
+        for col_index, value in enumerate(row_data):
+            cell = table.rows[row_index].cells[col_index]
+            cell.text = str(value)
+            set_cell_borders(cell)
+            cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+            align = (
+                WD_ALIGN_PARAGRAPH.LEFT
+                if first_col_left and col_index == 0
+                else WD_ALIGN_PARAGRAPH.CENTER
+            )
+            for paragraph in cell.paragraphs:
+                paragraph.alignment = align
+                for run in paragraph.runs:
+                    run.font.size = Pt(9)
+
+    if col_widths:
+        for row in table.rows:
+            for col_index, width in enumerate(col_widths):
+                row.cells[col_index].width = Inches(width)
+
+    add_caption(doc, caption)
+
+
+def save_with_word_open_fallback(doc: Document, path: Path) -> Path:
+    try:
+        doc.save(path)
+        return path
+    except PermissionError:
+        fallback = path.with_name(f"{path.stem}_updated{path.suffix}")
+        doc.save(fallback)
+        print(f"Original file appears open; saved fallback: {fallback}")
+        return fallback
+
+
+def count_docx_images(doc: Document) -> int:
+    return sum(1 for rel in doc.part.rels.values() if "image" in rel.reltype)
+
+
+def document_text(doc: Document) -> str:
+    parts = [paragraph.text for paragraph in doc.paragraphs]
+    for table in doc.tables:
+        for row in table.rows:
+            parts.extend(cell.text for cell in row.cells)
+    return "\n".join(parts)
+
+
+def verify_docx(path: Path) -> dict[str, object]:
+    doc = Document(path)
+    text = document_text(doc)
+    images = count_docx_images(doc)
+    tables = len(doc.tables)
+    captions = [
+        paragraph.text
+        for paragraph in doc.paragraphs
+        if paragraph.text.startswith(("Figure ", "Table "))
+    ]
+    headings = [
+        paragraph.text
+        for paragraph in doc.paragraphs
+        if paragraph.style and paragraph.style.name.startswith("Heading")
+    ]
+
+    failures = []
+    if images < EXPECTED_IMAGES:
+        failures.append(f"expected at least {EXPECTED_IMAGES} images, found {images}")
+    if tables < EXPECTED_TABLES:
+        failures.append(f"expected at least {EXPECTED_TABLES} tables, found {tables}")
+    for phrase in KEY_PHRASES:
+        if phrase not in text:
+            failures.append(f"missing key phrase: {phrase}")
+    for phrase in BANNED_PHRASES:
+        if phrase.lower() in text.lower():
+            failures.append(f"banned/stale phrase present: {phrase}")
+    for section in doc.sections:
+        width = round(section.page_width.inches, 2)
+        height = round(section.page_height.inches, 2)
+        if (width, height) not in {(8.5, 11.0), (11.0, 8.5)}:
+            failures.append(f"unexpected section size: {width} x {height}")
+
+    qa = {
+        "docx": str(path),
+        "size_kb": round(path.stat().st_size / 1024, 1),
+        "images": images,
+        "tables": tables,
+        "captions": len(captions),
+        "headings": len(headings),
+        "sections": len(doc.sections),
+        "failures": failures,
+    }
+    if failures:
+        raise AssertionError("DOCX QA failed:\n" + "\n".join(failures))
+    return qa
+
+
+def write_manifest(output_path: Path, qa: dict[str, object]) -> None:
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generator": str(Path(__file__).resolve()),
+        "output_docx": str(output_path),
+        "source_docs": [str(path) for path in SOURCE_DOCS],
+        "figures": [asdict(spec) | {"path": str(spec.path)} for spec in FIGURES],
+        "qa": qa,
+    }
+    MANIFEST.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def build_report() -> Path:
+    require_files(SOURCE_DOCS)
+    require_files(spec.path for spec in FIGURES)
+
     doc = Document()
+    configure_doc(doc)
+    add_title_block(doc, REPORT_TITLE, REPORT_SUBTITLE)
 
-    # ── Title ──
-    add_title_block(doc, "Report Title", "Subtitle here", "Method  •  Date")
+    doc.add_heading("1. Executive Summary", level=1)
+    add_body(
+        doc,
+        "State the engineering conclusion first, then summarize the evidence, "
+        "scope, assumptions, and limitations.",
+    )
+    add_bullet(doc, "Bullets are left-aligned and concise.")
+    add_bullet(doc, "Measured, calculated, inferred, assumed, and unknown values are distinguished.")
 
-    # ── Section 1 ──
-    doc.add_heading("1. Introduction", level=1)
-    para_justified(doc, "Body text goes here...")
+    doc.add_heading("2. Evidence and Method", level=1)
+    add_body(doc, "List the source documents, data files, and calculations used.")
+    add_table(
+        doc,
+        "Table 1. Source evidence used for the report.",
+        ["Source", "Use", "Status"],
+        [[path.name, "Input evidence", "Available"] for path in SOURCE_DOCS],
+        first_col_left=True,
+        col_widths=[2.4, 3.0, 1.2],
+    )
 
-    # ── Section with bullets ──
-    doc.add_heading("2. Configuration", level=1)
-    para_justified(doc, "The following configurations were evaluated:")
-    bullet_left(doc, "Configuration A — description")
-    bullet_left(doc, "Configuration B — description")
-
-    # ── Section with figure ──
     doc.add_page_break()
     doc.add_heading("3. Results", level=1)
-    add_image(doc, os.path.join(BASE, "plots", "figure1.png"), 6.5)
-    add_caption(doc, "Figure 1. Description of the figure.")
+    for number, spec in enumerate(FIGURES, start=1):
+        add_figure(doc, spec, number)
+        add_body(doc, "Explain what this figure proves and any limitations.")
 
-    # ── Table ──
-    doc.add_heading("4. Data", level=1)
-    add_table(doc,
-        headers=["Config", "Value A", "Value B"],
-        rows=[["Config 1", "1.23", "4.56"],
-              ["Config 2", "7.89", "0.12"]],
-        first_col_left=True)
+    saved_path = save_with_word_open_fallback(doc, OUTPUT_DOCX)
+    qa = verify_docx(saved_path)
+    write_manifest(saved_path, qa)
+    print(json.dumps(qa, indent=2))
+    print(f"Saved: {saved_path}")
+    print(f"Manifest: {MANIFEST}")
+    return saved_path
 
-    doc.save(OUT)
-    size_kb = os.path.getsize(OUT) / 1024
-    print(f"Saved {OUT} ({size_kb:.0f} KB)")
 
 if __name__ == "__main__":
-    main()
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    PREVIEW_DIR.mkdir(exist_ok=True)
+    build_report()
 ```
 
----
+Run with:
 
-## 10. Verification Checklist
+```bash
+uv run reports/<report-slug>/generate_report.py
+```
 
-After generating a report, verify:
+If dependency resolution happens on Windows/corporate networks, use the `uv`
+skill's TLS guidance (`--native-tls` and PyPI insecure-host flags).
 
-| Check | How | Why |
+## Figure Pipeline
+
+1. Put raw data and source screenshots under `data/` or `source_docs/`.
+2. Generate final figures into `figs/` before DOCX assembly.
+3. Review at the size it will appear in Word: labels readable, no clipped axes,
+   no legend/data overlap, no colorbar overlap, no blank screenshots, no
+   transparent background surprises.
+4. Record defects and fixes in `figure_review_log.txt`.
+5. Only then embed figures and rerun DOCX QA.
+
+Use this critic prompt for important figures:
+
+```text
+Review this figure as an adversarial technical reviewer. Check whitespace,
+legibility, label collisions, domain conventions, whether it communicates the
+intended engineering point, and whether captions/text overclaim. Return only
+actionable defects.
+```
+
+See `references/figures.md` for matplotlib settings, screenshot annotation,
+equation images, PDF previews, and visual QA ladders.
+
+## Existing DOCX Edit Mode
+
+Use this path only when the user asks to preserve or modify an existing Word
+file. Keep the original intact:
+
+1. Copy `Original.docx` to `Original_backup.docx`.
+2. Inspect paragraphs, tables, sections, headers/footers, relationships, and
+   `word/media` before editing.
+3. Replace only targeted text, figures, tables, or sections.
+4. Preserve page sizes, margins, orientation, headers, footers, numbering, and
+   existing media unless the user asks otherwise.
+5. Save as a new file and run structural QA against both expected changes and
+   preserved counts.
+
+Read `references/edit_existing.md` before editing an existing report.
+
+## QA Ladder
+
+Run the strongest available checks without blocking on unavailable GUI tools:
+
+1. **Package checks:** required source docs, data, figures, generator, and
+   manifest exist.
+2. **DOCX structural checks:** reopen with `python-docx`; count images, tables,
+   captions, headings, sections; verify key phrases and banned stale phrases.
+3. **Layout checks:** verify section page sizes and orientation; ensure figures
+   are not wider than the printable page.
+4. **PDF export:** if LibreOffice or Word automation is available, export a PDF
+   preview.
+5. **Page previews:** if PDF rendering tools are available, render preview pages
+   and inspect figures/tables visually.
+
+If export/render tools are unavailable, say which checks were skipped and keep
+the structural QA results in `report_manifest.json`.
+
+## Common Failure Patterns
+
+| Symptom | Likely cause | Response |
 |---|---|---|
-| Image count | Count `add_image` calls vs expected | Missing images fail silently |
-| Captions | Every image has a caption below it | Easy to forget |
-| Alignment | Grep for `JUSTIFY` — must NOT appear near `List Bullet` | #1 formatting bug |
-| Page breaks | Count `add_page_break` calls | Figures should start fresh pages |
-| Table count | Count `add_table` calls | Data tables can be accidentally dropped |
-| File size | `os.path.getsize` > threshold (e.g., 400 KB with images) | Catches missing images |
-
-Automated verification pattern:
-
-```python
-from docx import Document
-
-def verify_report(path):
-    doc = Document(path)
-    images = sum(1 for rel in doc.part.rels.values()
-                 if "image" in rel.reltype)
-    tables = len(doc.tables)
-    size_kb = os.path.getsize(path) / 1024
-
-    checks = [
-        ("Images", images, ">=", 1),
-        ("Tables", tables, ">=", 1),
-        ("File size (KB)", size_kb, ">", 100),
-    ]
-    for name, val, op, threshold in checks:
-        ok = val >= threshold if op == ">=" else val > threshold
-        status = "✓" if ok else "✗"
-        print(f"  {status} {name}: {val}")
-```
-
----
-
-## 11. Matplotlib Integration Tips
-
-When generating plots for embedding in DOCX reports:
-
-### DPI and sizing
-
-```python
-fig.savefig("plot.png", dpi=200, bbox_inches='tight', pad_inches=0.1)
-```
-
-- **200 DPI** is the sweet spot — crisp on screen and print, reasonable file size
-- `bbox_inches='tight'` prevents label clipping
-- Match the figure aspect ratio to the DOCX embed width
-
-### Multi-panel / multi-frequency bar charts
-
-When showing multiple groups with sub-categories (e.g., DC / 24 kHz / 36 kHz):
-
-```python
-# Use 3 shade levels per color family: lightest → darkest
-shades = {
-    'Group A': ['#c6dbef', '#6baed6', '#2171b5'],  # blue
-    'Group B': ['#fdd0a2', '#fd8d3c', '#d94801'],  # orange
-    'Group C': ['#c7e9c0', '#74c476', '#238b45'],  # green
-}
-# Index 0 = DC (lightest), 1 = mid freq, 2 = high freq (darkest)
-```
-
-### Vertical stacking with shared colorbar
-
-For multi-panel images that need a shared colorbar (e.g., field plots):
-
-```python
-import matplotlib.gridspec as gridspec
-
-fig = plt.figure(figsize=(8, 12))
-gs = gridspec.GridSpec(3, 1, height_ratios=[1, 1, 0.05], hspace=0.3)
-ax1 = fig.add_subplot(gs[0])
-ax2 = fig.add_subplot(gs[1])
-cbar_ax = fig.add_subplot(gs[2])
-# ... plot on ax1, ax2 ...
-fig.colorbar(im, cax=cbar_ax, orientation='horizontal')
-```
-
-**⚠ Never overlay a legend on plot data.** Use `bbox_to_anchor` to place it
-outside, or `ncol=` with small `fontsize=` to keep it compact.
-
----
-
-## 12. Common Pitfalls
-
-| Pitfall | Symptom | Fix |
-|---|---|---|
-| Justified bullets | Ugly word spacing in short lines | Use `WD_ALIGN_PARAGRAPH.LEFT` for all list items |
-| Missing `parse_xml` import | `NameError` at runtime | Import from `docx.oxml` |
-| Image path wrong | Silent placeholder text | Use `os.path.isfile` check with clear error |
-| Table too wide | Columns overflow page | Set explicit `col_widths` in `Inches()` |
-| Figure pushed to next page | Awkward whitespace | Add page break before the figure's section |
-| `nsdecls` missing | XML namespace error | Import from `docx.oxml.ns` |
-| Overwriting open file | `PermissionError` | Close the DOCX in Word before running script |
-| Colorbar overlaps data | Unreadable plot | Use `gridspec` with dedicated `cbar_ax` |
-| Legend overlaps bars | Unreadable plot | Use `ncol=`, `fontsize=6.5`, `framealpha=0.9` |
+| Ugly wide spaces in bullets | List items were justified | Set all list paragraphs to `WD_ALIGN_PARAGRAPH.LEFT`. |
+| Missing images but DOCX exists | Asset path wrong or placeholder fallback | Raise on missing assets and verify image relationships. |
+| Figure unreadable in Word | Plot reviewed only at full image size | Review at embed width; increase DPI/font sizes or simplify. |
+| Page size changed unexpectedly | Existing document edit reset sections | Verify every section width, height, margins, and orientation. |
+| `PermissionError` on save | DOCX open in Word | Save `_updated.docx` and report the fallback path. |
+| PowerShell heredoc/tool-call failure | Long inline script on Windows | Write a standalone `.py` file and run it with `uv run`. |
+| Unicode errors in PDF | Built-in PDF font lacks glyphs | Normalize text or register a Unicode TTF; see PDF reference. |
+| Stale conclusions remain | Manual patching instead of regeneration | Centralize assumptions and banned phrases, then regenerate. |

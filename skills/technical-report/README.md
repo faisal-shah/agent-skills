@@ -1,19 +1,23 @@
 # technical-report
 
 An [agent skill](https://docs.github.com/copilot/concepts/agents/about-agent-skills)
-that teaches AI coding assistants how to generate professional DOCX technical
-reports using `python-docx` — covering table formatting, alignment rules, image
-embedding, page layout, and reusable helper patterns.
+for producing reproducible technical report packages: DOCX reports generated
+with `python-docx`, safe scripted edits to existing Word reports, and short
+executive PDFs when DOCX is not required.
 
 > **Part of [agent-skills](../../README.md).** Complements
-> [elmer-fem](../elmer-fem/) and [circuit-sim](../circuit-sim/) by handling the
-> report generation step after simulation results are available.
+> [elmer-fem](../elmer-fem/) and [circuit-sim](../circuit-sim/) by packaging
+> simulation, design, and analysis results into report deliverables.
 
 ## What's Included
 
 | File | Required | Purpose |
 |------|----------|---------|
-| `SKILL.md` | **yes** | Main skill file loaded by the agent framework |
+| `SKILL.md` | **yes** | Agent operating procedure, canonical generator skeleton, QA ladder |
+| `references/docx_helpers.md` | no | Optional helper variants for advanced DOCX formatting |
+| `references/figures.md` | no | Figure generation, critique, screenshots, and preview workflow |
+| `references/edit_existing.md` | no | Safe workflow for editing existing DOCX files |
+| `references/pdf_fallback.md` | no | `fpdf2` executive PDF fallback patterns |
 | `README.md` | no | This file (repo documentation only) |
 | `AGENTS.md` | no | AI context for developing the skill itself |
 | `install.sh` | **yes** | Installs the skill into a skills directory (bash) |
@@ -33,7 +37,7 @@ embedding, page layout, and reusable helper patterns.
 **Windows (PowerShell):**
 
 ```powershell
-.\install.ps1                               # installs all skills
+.\install.ps1                              # installs all skills
 .\skills\technical-report\install.ps1      # install to both Copilot and Codex
 .\skills\technical-report\install.ps1 -Copilot
 .\skills\technical-report\install.ps1 -Uninstall
@@ -41,37 +45,22 @@ embedding, page layout, and reusable helper patterns.
 
 ## Prerequisites
 
-- **Python 3.10+** with `python-docx` (`pip install python-docx`)
-- **matplotlib** *(optional)* — for generating plots to embed in reports
-
-## Quick Start
-
-```python
-# Minimal PEP 723 script header
-# /// script
-# requires-python = ">=3.10"
-# dependencies = ["python-docx"]
-# ///
-
-from docx import Document
-doc = Document()
-doc.add_heading("My Report", level=1)
-doc.add_paragraph("Hello, world!")
-doc.save("report.docx")
-```
+- **Python 3.10+** with `python-docx`
+- **uv** for PEP 723 report generators
+- **matplotlib / pillow / fpdf2** only when the selected workflow needs plots,
+  screenshot checks, or PDF-only output
 
 ## What the Skill Covers
 
-1. **Alignment rules** — The #1 formatting mistake: justified bullets vs left-aligned lists
-2. **Table formatting** — Blue headers, white text, borders, centered numerics
-3. **Image embedding** — Centered images with sizing guidelines and overflow prevention
-4. **Figure captions** — Italic, centered, proper spacing
-5. **Page breaks** — When and where to insert them
-6. **Title blocks** — Professional report title/subtitle/date patterns
-7. **Rich text** — Inline bold phrases within paragraphs
-8. **Matplotlib integration** — DPI, sizing, multi-panel plots, colorbar management
-9. **Verification checklist** — Automated post-generation quality checks
-10. **Complete script skeleton** — Copy-and-adapt template for new reports
+1. Decision flow for new DOCX, existing-DOCX edit, or executive PDF.
+2. Durable report package layout with generator, evidence, figures, outputs,
+   previews, review log, and manifest.
+3. One canonical PEP 723 generator skeleton with QA built in.
+4. Figure generation and adversarial visual-review workflow.
+5. Existing Word report edit workflow that preserves layout and media.
+6. Structural DOCX validation, optional PDF export, and page previews.
+7. Windows/Office failure handling for open files, PowerShell quoting, and
+   Unicode/PDF issues.
 
 ## License
 
