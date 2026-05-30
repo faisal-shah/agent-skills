@@ -50,6 +50,20 @@ After conversion, inspect `mesh/mesh.names`. It is the most reliable mapping
 between human-readable group names and the numeric IDs used by `Target Bodies`
 and `Target Boundaries`.
 
+### Mesh handoff contract
+
+Elmer only sees the converted mesh, not the original CAD model or meshing GUI.
+For any upstream tool, the mesh handed to Elmer must satisfy this contract:
+
+- Every material/domain Elmer solves must be a distinct mesh body.
+- Every boundary condition must map to a named mesh boundary group.
+- The dielectric/air/fluid/rock region must be meshed for electrostatics;
+  voltage boundary edges alone do not create a solve domain.
+- CAD, STEP, Salome, or Gmsh labels may not survive conversion unchanged.
+  Treat `mesh/mesh.names` after `ElmerGrid` as authoritative.
+- Write SIF `Target Bodies`, `Target Boundaries`, or `Body Name` mappings from
+  the converted mesh, not from pre-conversion assumptions.
+
 ---
 
 ## 2. Geometry and Meshing Rules
@@ -155,6 +169,8 @@ Solver 1
   Procedure = "StatElecSolve" "StatElecSolver"
   Variable = Potential
   Exec Solver = Always
+  Linear System Solver = Direct
+  Linear System Direct Method = umfpack
 End
 
 Equation 1
@@ -260,6 +276,99 @@ End
 If an axisymmetric result looks rotated, inverted, or otherwise nonsensical,
 check the axis placement and coordinate mapping before touching solver settings.
 
+For scalar outputs such as capacitance or stored energy, validate axisymmetric
+normalization with a canonical case before trusting a custom result. In several
+Elmer electrostatic runs, the raw axisymmetric capacitance behaved like a
+per-radian value; a coaxial benchmark showed the full 360° result required a
+`2*pi` scale factor. Treat this as a version/model-dependent quantity until a
+known analytical case confirms the convention.
+
+---
+
+## 5.5 Electrostatic Capacitance Extraction
+
+Use this pattern for electrode capacitance, cable capacitance matrices, and
+dielectric stress checks.
+
+### Single capacitance
+
+1. Mesh the dielectric/air/fluid region between electrodes.
+2. Apply `Potential = 1.0` to the driven electrode boundary.
+3. Apply `Potential = 0.0` to the return/ground boundary.
+4. Solve electrostatics with explicit linear solver settings.
+5. Extract capacitance from Elmer's capacitance output or from stored energy:
+   `C = 2*W/V^2`.
+
+SIF solver pattern:
+
+```sif
+Solver 1
+  Equation = Electrostatics
+  Procedure = "StatElecSolve" "StatElecSolver"
+  Variable = Potential
+  Exec Solver = Always
+  Linear System Solver = Direct
+  Linear System Direct Method = umfpack
+  Calculate Electric Field = True
+  Calculate Electric Energy = True
+End
+```
+
+If using Elmer's capacitance matrix output, set the matrix options on
+`StatElecSolver` and assign `Capacitance Body` indices on the electrode boundary
+conditions:
+
+```sif
+Solver 1
+  ...
+  Calculate Electric Flux = True
+  Calculate Electric Energy = True
+  Calculate Capacitance Matrix = True
+  Capacitance Matrix Filename = "capmat_elmer_raw.dat"
+  Capacitance Bodies = 2
+End
+
+Boundary Condition 1
+  Target Boundaries(1) = 10
+  Capacitance Body = 1
+End
+
+Boundary Condition 2
+  Target Boundaries(1) = 20
+  Capacitance Body = 2
+End
+```
+
+Inspect the generated matrix file and solver log before automating a parser;
+file names and column formatting can differ between workflows.
+
+### Capacitance matrix workflow
+
+For N conductors, run N electrostatic solves:
+
+- solve k: conductor k at 1 V, all other conductors at 0 V;
+- parse the resulting charge/capacitance outputs;
+- assemble the capacitance matrix column-by-column;
+- verify symmetry (`C_ij ≈ C_ji`) and row/charge consistency;
+- compare simple subcases against analytical coaxial, parallel-plate, or
+  cylindrical approximations.
+
+For triaxial or multiconductor cables, keep the electrostatic C extraction
+separate from harmonic magnetic R/L extraction. Use electrostatic solves for
+capacitance and circuit-coupled harmonic MagnetoDynamics solves for current
+return modes, skin effect, proximity effect, R, and L.
+
+### Mesh and convergence checks
+
+Capacitance is very sensitive to narrow gaps and dielectric interfaces:
+
+- resolve small gaps with several elements across the gap;
+- run a coarse/medium/fine mesh sweep before trusting small capacitances;
+- compare engineering scalars to a finer/reference case, not just solver
+  convergence;
+- save the mesh profile, SIF, solver log, capacitance/scalar files, and reduced
+  JSON/CSV results with enough metadata to reproduce the run.
+
 ---
 
 ## 6. 2D Harmonic MagnetoDynamics — Circuit-Coupled Conductors
@@ -313,6 +422,15 @@ components. If Go uses nodes (2→3), Return uses (1→3) or (3→2). This makes
 circuit force negative current through the return wires, giving −z current in
 the FEM. Without this, all conductors carry +z current and there is no field
 cancellation — inductance will be ~8× too high.
+
+**Body ID rule:** The `body_id` argument in `ElmerComponent(...)` refers to the
+Elmer SIF `Body N` number, not the Gmsh physical ID or `Target Bodies` ID. Keep
+the circuit definition, SIF body numbers, and mesh names aligned explicitly.
+
+If a script changes into `case_dir` before calling
+`generate_elmer_circuits()`, pass a local filename such as
+`"circuit.definition"`. Passing `case_dir / "circuit.definition"` after
+`chdir(case_dir)` can accidentally create nested paths.
 
 ### 6.3 Coil types: Massive vs Stranded
 
@@ -474,6 +592,11 @@ End
 - **All conductor bodies need `Body Force = 1`** — this references the
   circuit-generated body force (I1_Source). Without it, the circuit has no
   coupling to the FEM bodies.
+- **`ElmerComponent` body IDs are SIF body numbers** — they are not Gmsh
+  physical IDs. Verify the SIF `Body N` layout before generating the circuit.
+- **`SaveScalars` writes relative to the solver working directory** — with
+  `Filename = "scalars.dat"`, parse `case_dir/scalars.dat*` unless the SIF
+  explicitly puts the file elsewhere.
 
 ### 6.5 Why NOT to use Body Force current density
 
@@ -515,6 +638,42 @@ L_per_m = Z.imag / omega           # inductance
 
 **Parsing gotcha:** When matching column names, do NOT use `"re" in name` —
 this falsely matches the `"res:"` prefix in every line. Use exact key matching.
+
+### AC-loss extraction from Joule heating
+
+For solid conductors, circuit-coupled harmonic solves can also estimate AC loss:
+
+1. Use conductive material properties and `Coil Type = "Massive"` for solid
+   wire or buswork.
+2. Enable `Calculate Joule Heating = Logical True` in
+   `MagnetoDynamicsCalcFields`.
+3. Integrate Joule heating over conductor elements.
+4. Convert average power to resistance using the current convention used by the
+   circuit source; for peak current, `R_ac = 2*P_avg/I_peak^2`.
+
+For axisymmetric integrations, include the geometric weight:
+
+```text
+P_axisym = Σ(q_e * 2*pi*r_centroid*area_e)
+```
+
+Do not overstate the validation scope. A primary-only or secondary-only solve
+captures skin effect and same-family proximity for the active conductors; it
+does not prove simultaneous primary/secondary current redistribution unless the
+full coupled current pattern is modeled.
+
+### AC-loss validation hierarchy
+
+Validate AC conductor loss in layers:
+
+1. Isolated round wire vs an analytical skin-effect/Bessel solution.
+2. A transverse-field cylinder benchmark for pure proximity behavior.
+3. Two parallel conductors for current-coupled proximity.
+4. Full cable or transformer geometry after the canonical cases pass.
+
+Expect `R_ac` and Joule loss to converge more slowly with mesh refinement than
+L or C extraction. Use mesh/tolerance sweeps and compare physical deltas to a
+finer/reference case.
 
 ### 6.7 Simple 2-conductor go/return pair
 
@@ -700,6 +859,24 @@ lines += ['  </Collection>', '</VTKFile>']
 (results / "fields.pvd").write_text("\n".join(lines))
 ```
 
+### Artifact audit and scalar reduction
+
+For expensive or long-running studies, keep an inspectable case directory:
+
+- input mesh (`mesh.msh` or `mesh.unv`) and converted `mesh/`;
+- `mesh/mesh.names`;
+- `case.sif`, included files, and `ELMERSOLVER_STARTINFO`;
+- solver logs;
+- scalar outputs such as `scalars.dat`, `capacitance.dat`, and their `.names`
+  files;
+- reduced result JSON/CSV with metadata: mesh profile, frequency/timestep,
+  solver tolerances, Elmer version, and script/config inputs.
+
+Reduce large field outputs to durable engineering scalars when possible:
+capacitance, R/L, stored energy, Joule loss, peak field, matrix symmetry error,
+and convergence deltas. Do not keep or generate huge VTU sets unless field
+visualization is still needed.
+
 ---
 
 ## 8. Worked Example: Pulsed Axisymmetric Capacitor
@@ -762,6 +939,8 @@ Solver 1
   Procedure = "StatElecSolve" "StatElecSolver"
   Variable = Potential
   Exec Solver = Always
+  Linear System Solver = Direct
+  Linear System Direct Method = umfpack
   Calculate Electric Field = True
 End
 
@@ -891,6 +1070,13 @@ clean up temp files. On Windows this produces a harmless warning:
 `'rm' is not recognized...`. It can be ignored — the circuit definition file
 is still generated correctly.
 
+### Case directory path hygiene
+
+Run each case from an explicit working directory and keep all solver inputs
+there. If a script changes into the case directory before generating circuit
+files, pass local output names such as `"circuit.definition"`; avoid combining
+`chdir(case_dir)` with already case-prefixed paths.
+
 ---
 
 ## 10. Debugging Checklist
@@ -898,21 +1084,27 @@ is still generated correctly.
 | Symptom | Likely cause | What to do |
 |---|---|---|
 | BC seems applied to the wrong edge | Boundary IDs do not match the mesh | Inspect `mesh/mesh.names` and fix `Target Boundaries` |
+| Electrostatic solve gives zero or nonsensical field | Dielectric/air/fluid solve domain is missing from the mesh | Mesh the region where potential is solved, not only conductor edges |
+| Electrostatic solver errors with missing linear solver | Solver block lacks explicit `Linear System Solver` settings | Add direct or iterative linear solver settings to `StatElecSolver` |
+| Axisymmetric capacitance is off by about `2*pi` | Scalar normalization differs from the assumed full-revolution value | Validate against an analytical coaxial case and apply the verified scale |
 | Solver starts but result is nonsense in axisymmetry | Wrong `r-z` interpretation or mapping | Re-check axis on `x=0` and `Coordinate Mapping(3)` |
 | Output field is missing | Computed quantity was not exported | Add it explicitly to `ResultOutputSolver` or derive it in ParaView |
 | Too many or too few VTUs written | Assumption about output cadence is wrong | Trust the solver log and actual files, not expectations |
+| Scalar parser cannot find `scalars.dat` | Looking under `mesh/` when `SaveScalars` wrote in the solver working directory | Parse relative to the case directory unless the SIF sets another path |
 | ParaView Apply is very slow | Loading many VTUs directly | Open a `.pvd` collection instead |
 | Gmsh groups are wrong after booleans | OCC retagged entities | Build groups from the final boolean result, not old tags |
 | Convergence is bad from the start | Model too complex too early | Reduce to a coarse steady-state or single-step version, then add complexity |
 | R ≈ R_dc at all frequencies, L too small | Using Body Force instead of circuit coupling | Switch to CircuitsAndDynamicsHarmonic (§6) |
 | All conductors carry same-direction current | Go/Return pin nodes not reversed in circuit | Swap pin1/pin2 for Return components (§6.2) |
 | L is 5–10× too high | No opposing return current | Check circuit topology — return conductors need reversed pins |
+| Circuit component attaches to the wrong conductor | `ElmerComponent` used a Gmsh physical ID instead of the SIF `Body N` | Align `ElmerComponent(... body_id ...)` with SIF body numbers |
 | `Number of Turns` type error | Used `Integer` instead of `Real` | Must be `Number of Turns = Real 1` |
 | CalcFields solver crashes | Missing Linear System Solver settings | Add `Linear System Solver = Iterative` + method + tolerance |
 | ElmerSolver can't find SIF | Missing ELMERSOLVER_STARTINFO (esp. Windows) | Create file containing `case.sif\n1\n` (safe on all platforms) |
 | Litz R > solid R in FEM | Used Massive coil type with reduced σ | Use Stranded coil type instead (§6.3) |
 | Component current ≈ 0 in solver log | `Body Force = 1` missing on conductor bodies | Add `Body Force = 1` to every conductor body in SIF |
 | Solver crashes with "singular matrix" | Isolated conductor with no circuit coupling | Ensure every conductor body has a matching `ElmerComponent` |
+| `R_ac` changes more than L/C across mesh refinements | Joule loss is under-resolved near conductor surfaces | Refine skin/proximity regions and compare to a finer reference case |
 
 ---
 
@@ -923,6 +1115,8 @@ is still generated correctly.
 - Validate **mesh names and BC mapping** before tuning solver tolerances
 - Capture solver stdout to a log file
 - Verify actual output arrays before telling the user what fields exist
+- Reduce large runs to scalar engineering outputs with enough metadata to rerun
+- Use mesh/timestep/tolerance sweeps and compare physical deltas to a reference
 - Prefer `.pvd` for time series visualization
 - For impedance extraction: use **circuit-coupled conductors**, not Body Force
 - For litz wire: use **Stranded** coil type with η × σ_Cu, never Massive with
@@ -1012,8 +1206,12 @@ def write_circuit(case_dir: Path) -> None:
     comps.append(ElmerComponent("Go", 2, 3, 1, [1]))
     comps.append(ElmerComponent("Ret", 1, 3, 2, [2]))
     c[1].components.append(comps)
+    old_cwd = Path.cwd()
     os.chdir(case_dir)
-    generate_elmer_circuits(c, str(case_dir / "circuit.definition"))
+    try:
+        generate_elmer_circuits(c, "circuit.definition")
+    finally:
+        os.chdir(old_cwd)
 
 
 def write_sif(case_dir: Path, omega: float) -> None:
