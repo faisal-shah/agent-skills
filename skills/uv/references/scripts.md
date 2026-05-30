@@ -1,5 +1,12 @@
 # Running Scripts with uv
 
+Use this reference when `SKILL.md` is not enough. The default agent pattern is:
+
+1. create or edit a PEP 723 script;
+2. declare every non-stdlib import;
+3. smoke-run with `uv run`;
+4. keep the script beside durable outputs.
+
 ## Basic Usage
 
 ```bash
@@ -42,6 +49,17 @@ from rich import print
 
 Then just: `uv run script.py`
 
+### Agent Checklist
+
+- Put every import outside the standard library into `dependencies`.
+- Add version bounds when reproducibility matters.
+- Run `uv run script.py --help` or the smallest real input immediately.
+- Keep scripts that generate reports, figures, or engineering artifacts in a
+  durable location with the output. Use `/tmp` only for disposable scratch.
+- If multiple scripts share heavy packages such as `matplotlib`, `scipy`,
+  `python-docx`, `pymupdf`, `gmsh`, or `playwright`, prefer one orchestrating
+  script to repeated one-off resolver runs.
+
 ### Managing Dependencies
 
 ```bash
@@ -61,6 +79,30 @@ Adds to metadata:
 # [[tool.uv.index]]
 # url = "https://example.com/simple"
 ```
+
+For a private feed already configured for pip:
+
+```bash
+UV_EXTRA_INDEX_URL="$(pip config get global.extra-index-url 2>/dev/null)" \
+  uv run --with private-package script.py
+```
+
+Wrappers should resolve this once and pass the environment through to nested
+`uv run` calls.
+
+### Windows Corporate TLS
+
+When dependency resolution hits TLS/certificate errors on Windows, use:
+
+```powershell
+uv run --python 3.12 --native-tls `
+  --allow-insecure-host pypi.org `
+  --allow-insecure-host files.pythonhosted.org `
+  script.py
+```
+
+Apply the same flags to `uv add` or `uv pip install` when those commands must
+resolve packages.
 
 ## Locking Dependencies
 
@@ -96,3 +138,13 @@ print(httpx.get("https://example.com"))
 chmod +x myscript
 ./myscript
 ```
+
+## Troubleshooting Script Runs
+
+| Symptom | Fix |
+|---|---|
+| Import works with `python3` but not `uv run` | Add the package to PEP 723 metadata or use `uv run --with package ...`. |
+| Local package checkout is needed | Prefix with `PYTHONPATH="$PWD"` or the exact `src` path. |
+| Private package cannot resolve | Export `UV_EXTRA_INDEX_URL` or add an inline index. |
+| First run downloads large browser/GUI/science deps | Expect slow output; keep dependencies stable and avoid repeated script fragmentation. |
+| Dataclass-heavy module imported dynamically from a PEP 723 script | Register the module in `sys.modules` before executing the imported module. |
