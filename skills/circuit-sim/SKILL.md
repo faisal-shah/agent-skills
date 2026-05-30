@@ -19,6 +19,8 @@ parse binary output, and plot results with matplotlib.
 ## Prerequisites
 
 - `ngspice` installed and on `PATH` (`ngspice --version` to verify)
+- Windows automation: prefer console `ngspice_con.exe` when available; GUI
+  `ngspice.exe` can create popups and empty logs in unattended runs
 - Python 3.10+ with `numpy` and `matplotlib` (use `uv run` with inline metadata)
 
 ---
@@ -72,6 +74,7 @@ Title Line (REQUIRED — first line is always the title, never a command)
 run
 wrdata output.csv v(out) v(in)
 write output.raw v(out)
+quit
 .endc
 
 .end
@@ -96,6 +99,7 @@ This is the most reliable pattern and works with `.meas` directives:
 .control
 run
 write output.raw
+quit
 .endc
 ```
 
@@ -106,6 +110,29 @@ automatically — but **silently suppresses `.meas` results**. Use only without 
 
 `scripts/run_sim.py` handles this automatically — detects `.meas` and injects
 a `.control` block when needed.
+
+### Batch Automation Reliability
+
+For unattended or generated studies, treat a run as valid only after checking:
+
+- deterministic working directory (usually the netlist directory)
+- project-relative or caller-specified output paths, not hardcoded scratch paths
+- return code plus stdout/stderr
+- rawfile exists and has nonzero points
+- expected variables are present before indexing
+- timeout for sweeps or generated cases
+- high-signal log terms: `error`, `fatal`, `singular`, `timestep`,
+  `convergence`, `timeout`, `aborted`
+- manifest with ngspice executable/version, netlist, rawfile, log, metrics, and
+  plot paths
+
+Common batch failures:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `write output.raw` is reported as an unknown model/element | Control command parsed as circuit syntax | Put `run`/`write` inside `.control ... .endc` in a complete netlist, then run `ngspice -b circuit.cir` |
+| Batch run says no simulations ran | No usable `.control`, `.print`, `.plot`, `.save`, or raw output path | Add `.control` with `run` + `write output.raw`, or use `-b -r output.raw` |
+| Rawfile exists but arrays are empty | Run failed after opening the file | Inspect return code/log and rawfile header before parsing data |
 
 ### Selective Output with .save
 
@@ -168,7 +195,20 @@ vout_ac = data["v(out)"]           # AC: complex → use np.abs(), np.angle()
 mag_dB = 20 * np.log10(np.abs(vout_ac))
 ```
 
-### ⚠ Current Probe Naming Mismatch
+Always inspect variables once before writing analysis code:
+
+```python
+from parse_rawfile import parse_rawfile_header
+
+header = parse_rawfile_header("output.raw")
+for var in header["variables"]:
+    print(var["name"], var["type"])
+```
+
+### Current and CSV Extraction
+
+Do not assume branch-current names. Depending on the element and output mode,
+currents may appear as `i(lname)`, `i(vsense)`, or `i(@lname[i])`.
 
 When saving inductor/device branch currents, the `.save` directive form and the
 rawfile key differ:
@@ -180,6 +220,30 @@ rawfile key differ:
 
 Always look up currents by the **rawfile key** (`i(...)` form), not the `.save`
 form. This mismatch causes `KeyError` crashes in analysis scripts.
+
+For arbitrary branch current, insert a zero-volt sense source:
+
+```spice
+Vsense n1 n2 DC 0
+.save i(Vsense)
+```
+
+For resistor current, compute from node voltages when that is simpler and less
+ambiguous:
+
+```python
+i_load = (v_pos - v_neg) / r_load
+```
+
+For capacitor current, post-process `I = C*dV/dt` when internal device current
+is unavailable or suspect. Internal subcircuit passive currents may be omitted,
+hierarchically named, or not the signal intended.
+
+`wrdata` CSV output can be `time1 value1 time2 value2 ...` even with a single
+scale. Parse by vector names or tolerate repeated scale columns, not by fixed
+column positions. Treat `wrdata @device[i]` current export with caution; when
+high confidence matters, prefer rawfile currents, a sense source, or
+node-derived current.
 
 CLI: `uv run scripts/parse_rawfile.py output.raw [--json | --csv]`
 
@@ -237,6 +301,68 @@ C1 out 0 1n
 The rawfile contains multiple runs. Use `parse_rawfile_all()` to get a list of
 dicts, one per run. `run_sim.py` handles this automatically with `result.all_runs`.
 
+### 4e. Transient Post-Processing Checks
+
+Do not trust plots alone for pulsed or bipolar waveforms. Reduce each run to
+engineering scalars:
+
+```python
+time = np.real(data["time"])
+vout = np.real(data["v(out)"])
+
+idx_min = int(np.argmin(vout))
+idx_max = int(np.argmax(vout))
+v_neg_peak, t_neg_peak = vout[idx_min], time[idx_min]
+v_pos_peak, t_pos_peak = vout[idx_max], time[idx_max]
+
+idx_abs = int(np.argmax(np.abs(vout)))
+v_abs_peak, t_abs_peak = vout[idx_abs], time[idx_abs]
+```
+
+For resistive-load energy:
+
+```python
+p_load = v_load * v_load / r_load
+e_load = np.trapezoid(p_load, time)
+```
+
+For RLC ring-down cases, compare against sanity checks before reporting:
+
+- natural frequency: `f0 = 1 / (2*pi*sqrt(L*C))`
+- impedance: `Z0 = sqrt(L/C)`
+- expected peak current: `Ipk ≈ V0 / Z0`
+- reversal percentage and total stored/dissipated energy
+- positive and negative peak times/magnitudes separately
+
+Regenerate CSV/JSON/plots after every netlist change and print key metrics from
+the plotting script so stale artifacts are obvious.
+
+### 4f. Pulsed Capacitor / RLC Ring-Down
+
+Use this pattern for precharged stored-energy circuits:
+
+```spice
+Pulsed RLC Ringdown
+.param V0=15000 C0=0.5u L0=100u RLOAD_VAL=2
+Vtrig trig 0 PULSE(0 1 50u 100n 100n 500u 1m)
+C1 cap 0 {C0} ic={V0}
+Sfire cap n1 trig 0 SWFIRE
+L1 n1 n2 {L0}
+Rload n2 0 {RLOAD_VAL}
+.model SWFIRE SW(VT=0.5 VH=0.05 RON=10m ROFF=1G)
+.tran 0.1u 500u UIC
+.save v(cap) v(n2) i(L1)
+.control
+run
+write output.raw
+quit
+.endc
+.end
+```
+
+If branch current naming is ambiguous, add a zero-volt sense source in series
+with the load or compute current from `V/R`.
+
 ---
 
 ## 5. Monte Carlo / Tolerance Analysis
@@ -275,7 +401,10 @@ For passives, apply TC manually: `R(T) = R_nom × (1 + TC × (T - 25))`.
 .meas tran overshoot MAX v(out)
 ```
 
-Manual parsing from stdout: look for `meas_name = value` lines.
+Manual parsing from stdout: parse only declared measurement names, or filter
+ngspice status/memory lines such as `doing analysis at temp` and
+`total elapsed time`. Use both `MAX` and `MIN`, or post-process absolute peaks
+in Python, for bipolar transient waveforms.
 
 ---
 
@@ -331,6 +460,12 @@ Define both `L` elements **before** the `K` statement.
 For multi-winding transformers, use a single `K` statement with all inductors
 and the upper-triangle coupling matrix: `K_all L1 L2 L3 k12 k13 k23`.
 
+Polarity matters: the first node of each inductor is the dotted terminal for
+`K` sign reasoning. Validate polarity on a one-stage/minimal deck before
+scaling to many windings. When comparing against another solver, compare sign,
+magnitude, timing, and energy separately so a dot-convention error does not hide
+a magnitude problem.
+
 ### Differential Monitor Source
 
 For differential voltage measurements, add a non-loading VCVS:
@@ -375,9 +510,29 @@ Cload out  0  {Cload}
 .control
 run
 write output.raw
+quit
 .endc
 .end
 ```
+
+### Generated Netlist Hygiene
+
+For programmatic exporters or large generated systems:
+
+- use safe deterministic SPICE names; avoid punctuation that complicates
+  rawfile lookup
+- emit values in scientific notation to avoid suffix ambiguity (`M` is milli)
+- keep design netlists separate from instrumented analysis copies
+- insert instrumentation before the final `.end`; when replacing directives,
+  consume continuation lines beginning with `+`
+- use `.save` aggressively to reduce rawfile size
+- define all `L` elements before `K` statements; clamp `|k| < 1` and count
+  expected couplings
+- label per-section values separately from series/parallel equivalent values
+- add model-scope comments when a simplified equivalent is intentional, such as
+  fixed-frequency `R_ac` represented by a constant transient resistor
+- write a manifest containing original netlist, instrumented netlist, rawfile,
+  log, metrics JSON/CSV, and plots
 
 ### Subcircuit Usage
 
@@ -417,6 +572,11 @@ Bpwr pwr 0 V={V(load)*I(Vsense)}
 Expressions can reference any node voltage `V(node)` or branch current
 `I(Vsource)`. Supports standard math functions: `abs`, `sqrt`, `exp`,
 `log`, `sin`, `cos`, `min`, `max`, `atan2`, `pow`, ternary `(cond ? a : b)`.
+
+For advanced saturable-inductor or magnetic-switch models, save internal state
+nodes (flux, effective inductance, threshold flag), smooth hard transitions,
+include damping/leakage, and validate threshold timing on a minimal circuit
+before embedding the model in a large switched network.
 
 ### Transient Source Functions
 
@@ -458,11 +618,24 @@ Vpulse in 0 PULSE(0 5 0 10n 10n 10u 100u)
 | `ic=` ignored, all zeros | `.tran` without `UIC` | Add `UIC` to `.tran` line (`run_sim.py` warns automatically) |
 | `PULSE` DC value warning | Informational only — V1 ≠ DC OP | Ignore; simulation proceeds correctly. Common on trigger sources |
 | `KeyError` on current data | `.save @L[i]` → rawfile key is `i(@L[i])` | Look up by rawfile key with `i()` wrapper (see §3) |
+| Plausible but wrong waveform | Topology/polarity mismatch, not syntax | Check switch/load assumptions, diode direction, and transformer dots |
+| Empty or zero-point rawfile | Failed run left an output stub | Check return code/log/header before parsing arrays |
+| Switch model does not behave as expected | LTspice-style `VON`/`VOFF` used with ngspice `SW` | Use ngspice `VT`/`VH` plus `RON`/`ROFF` |
 
 ### Convergence Helpers
 
 Escalation order: `method=gear` → `maxord=2` → `reltol=0.003` → relax
 `abstol`/`vntol` → `itl4=100` → `gmin`/`cshunt`.
+
+Fix model discontinuities before only relaxing tolerances:
+
+- use finite switch `RON`/`ROFF` and hysteresis (`VT`, `VH`)
+- add leakage/reference resistors for floating nodes
+- delay initial switching or use non-overlap PWL controls
+- smooth behavioral-source transitions and save internal state nodes for debug
+- replace ideal CC/CV clamps with labeled finite Thevenin/current-limit
+  equivalents when adequate
+- add damping only when it represents real loss or a justified numerical proxy
 
 | Option | Default | When to change |
 |--------|---------|----------------|
@@ -502,4 +675,41 @@ the needed signal list, and inject `.control`/`run`/`write`/`.endc` before
 design netlist. This keeps different analysis modes (time-domain, AC sweep,
 parameter scan) independent.
 
+### Solver-Parity / CI Pattern
 
+When ngspice is an independent witness for a Python/ODE/FEM pipeline:
+
+```python
+import shutil
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    shutil.which("ngspice") is None,
+    reason="ngspice not installed",
+)
+```
+
+- run with a timeout and include stdout/stderr on failure
+- assert the rawfile/CSV exists and contains nonzero data
+- compare scalar metrics and waveform overlays, not just solver success
+- interpolate adaptive ngspice timesteps before RMS/error comparisons
+- compare sign, magnitude, timing, and energy separately
+
+### Topology Validation Checklist
+
+Before trusting results, confirm:
+
+- what is physically connected at `t=0`
+- whether the load is permanently connected, diode-gated, actively switched, or
+  absent
+- every switch has an actual modeled control source or device
+- initial conditions are physical and `.tran ... UIC` is present when using
+  component `ic=`
+- all non-ground nodes have a DC path or intentional leakage/reference path
+- the simulated topology matches the schematic/block diagram
+- idealizations such as switches, clamps, CC/CV sources, and Thevenin
+  equivalents are clearly labeled
+
+For diode orientation, use `Dname anode cathode model` and verify the expected
+half-cycle from parsed peak data. Negative-rail circuits are easy to reverse by
+symbol intuition alone.
