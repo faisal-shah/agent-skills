@@ -18,7 +18,7 @@ skills/
 ├── netlist-to-schematic/   ← SPICE netlist → Circuitikz schematic diagrams
 ├── playwright-cli/         ← browser automation via playwright-cli
 ├── robust-doc/             ← adversarial technical document verification
-├── shellcheck/             ← shell script linting with shellcheck
+├── shellcheck/             ← script linting with ShellCheck and PSScriptAnalyzer
 ├── technical-report/       ← DOCX report generation (python-docx, tables, figures, formatting)
 └── uv/                     ← Python uv tool (scripts, deps, builds)
 ```

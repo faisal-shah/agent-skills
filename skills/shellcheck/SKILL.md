@@ -1,53 +1,72 @@
 ---
 name: shellcheck
-description: "Lint shell scripts with shellcheck, fix warnings, and validate correctness"
+description: "Lint shell scripts with ShellCheck and PowerShell scripts with PSScriptAnalyzer"
 ---
 
-# ShellCheck Linting Skill
+# Script Linting Skill
 
-Lint deliverable `.sh` and `.bash` files using `shellcheck`. Fix all actionable warnings.
+Lint deliverable shell scripts with the right analyzer. ShellCheck does **not**
+lint PowerShell; use PSScriptAnalyzer for PowerShell scripts.
 
 ## Scope
 
-**Lint these** — any shell script that persists as a project artifact:
-- Scripts committed to the repo
-- Shell templates (`.sh.template`)
-- Generated scripts users will run (e.g., `ralph.sh`)
+| Files | Tool |
+|-------|------|
+| `.sh`, `.bash`, `.sh.template` | `shellcheck` |
+| `.ps1`, `.psm1`, `.psd1` | `PSScriptAnalyzer` |
 
 **Skip these** — ephemeral scripts used during task execution:
-- Inline `bash` tool one-liners
+- Inline `bash`/`pwsh` tool one-liners
 - Ad-hoc pipeline glue
 - Throwaway diagnostic commands
 
 ## Prerequisites
 
 ```bash
-pip install shellcheck-py   # preferred — no sudo needed
+pip install shellcheck-py   # ShellCheck, no sudo needed
 ```
 
-## Workflow
+```powershell
+Install-Module PSScriptAnalyzer -Scope CurrentUser
+```
 
-1. **Run shellcheck** with machine-parseable output:
-   ```bash
-   shellcheck -f gcc <file>
-   ```
+PSScriptAnalyzer is the PowerShell equivalent and a separate module; it is not
+bundled with PowerShell.
 
-2. **Fix** each warning:
+## Shell Scripts
 
-   | Code | Issue | Fix |
-   |------|-------|-----|
-   | SC1090 | Can't follow non-constant source | `# shellcheck source=/dev/null` before the `source` line |
-   | SC1091 | Not following sourced file | Same as SC1090, or `# shellcheck source=path/to/file` |
-   | SC2034 | Variable appears unused | Remove, export, or `# shellcheck disable=SC2034` with explanation |
-   | SC2043 | Loop will only run once | Replace `for var in SINGLE; do` with direct check |
-   | SC2086 | Double-quote to prevent globbing | `"$var"` instead of `$var` |
-   | SC2129 | Use grouped redirects | `{ cmd1; cmd2; } >> file` |
-   | SC2012 | Use find instead of ls | `find dir -name '*.ext' \| wc -l` |
-   | SC1083 | Literal `{` or `}` | Quote it — or it signals a template placeholder bug |
-   | SC2155 | Declare and assign separately | `local var; var=$(cmd)` |
-   | SC2164 | Use `cd ... \|\| exit` | `cd dir || exit 1` |
+```bash
+shellcheck -f gcc <file>
+```
 
-3. **Re-run shellcheck** after fixes — must be clean before reporting done.
+Fix each warning:
+
+| Code | Issue | Fix |
+|------|-------|-----|
+| SC1090 | Can't follow non-constant source | `# shellcheck source=/dev/null` before the `source` line |
+| SC1091 | Not following sourced file | Same as SC1090, or `# shellcheck source=path/to/file` |
+| SC2034 | Variable appears unused | Remove, export, or `# shellcheck disable=SC2034` with explanation |
+| SC2043 | Loop will only run once | Replace `for var in SINGLE; do` with direct check |
+| SC2086 | Double-quote to prevent globbing | `"$var"` instead of `$var` |
+| SC2129 | Use grouped redirects | `{ cmd1; cmd2; } >> file` |
+| SC2012 | Use find instead of ls | `find dir -name '*.ext' \| wc -l` |
+| SC1083 | Literal `{` or `}` | Quote it — or it signals a template placeholder bug |
+| SC2155 | Declare and assign separately | `local var; var=$(cmd)` |
+| SC2164 | Use `cd ... \|\| exit` | `cd dir || exit 1` |
+
+Re-run ShellCheck after fixes. Results must be clean before reporting done.
+
+## PowerShell Scripts
+
+```powershell
+Invoke-ScriptAnalyzer -Path .\script.ps1
+Invoke-ScriptAnalyzer -Path . -Recurse
+Invoke-ScriptAnalyzer -Path .\script.ps1 -Fix
+```
+
+Use `-Fix` only when the change is safe, then review the diff. Fix all
+diagnostics and re-run PSScriptAnalyzer. Results must be clean before reporting
+done.
 
 ## Template Files
 
@@ -69,10 +88,28 @@ to avoid colliding with bash `${}` syntax.
 
 ## Suppression Rules
 
+Prefer fixing over suppressing. Suppress narrowly only when the diagnostic is
+intentional and documented.
+
+**ShellCheck**
+
 - **Line-level**: `# shellcheck disable=SC2034` on the line before
 - **File-level**: `# shellcheck disable=SC2129` after the shebang
 - **Never suppress** SC2086 or SC2046 without a clear reason
 - Always comment WHY when suppressing
+
+**PSScriptAnalyzer**
+
+Use `SuppressMessageAttribute` with a justification:
+
+```powershell
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+    'PSAvoidUsingWriteHost',
+    '',
+    Justification = 'Interactive script intentionally writes host output.'
+)]
+param()
+```
 
 ## Useful Flags
 
@@ -81,4 +118,10 @@ shellcheck -x script.sh          # follow sourced files
 shellcheck -s bash script.sh     # force bash dialect
 shellcheck -e SC1090 script.sh   # exclude specific codes
 shellcheck -f diff script.sh     # output as unified diff
+```
+
+```powershell
+Invoke-ScriptAnalyzer -Path .\script.ps1
+Invoke-ScriptAnalyzer -Path . -Recurse
+Invoke-ScriptAnalyzer -Path .\script.ps1 -Fix
 ```

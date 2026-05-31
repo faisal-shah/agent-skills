@@ -13,7 +13,7 @@
   - Smoke test GUIs by loading real data and exercising features
   - Test on real datasets or sample logs when available
   - For Cython/Python hybrid codebases, verify parity between implementations
-- **shellcheck deliverable shell scripts:** Run `shellcheck` on every `.sh` file created or edited as a project artifact (committed scripts, templates, generated outputs). Fix all warnings. Do NOT lint ephemeral one-liners or inline bash used during task execution.
+- **Lint deliverable scripts:** Run `shellcheck` on deliverable `.sh`/`.bash` scripts and `PSScriptAnalyzer` on deliverable `.ps1`/`.psm1`/`.psd1` scripts. Do NOT lint ephemeral one-liners or inline shell used during task execution. Fix all warnings/diagnostics before reporting completion.
 - **Profile before optimizing:** Use real data to identify bottlenecks. When performance is critical, target dramatic speedups (10-100x).
 
 ## Tool Preferences

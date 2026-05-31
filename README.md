@@ -16,7 +16,7 @@ Elmer FEM setup, schematic drawing, and persistent memory across sessions.
 | [netlist-to-schematic](skills/netlist-to-schematic/) | Convert SPICE netlists into publication-quality Circuitikz schematic diagrams | pdflatex, pdftoppm, Python 3.10+ |
 | [playwright-cli](skills/playwright-cli/) | Browser automation: navigation, form filling, screenshots, scraping, session management | playwright-cli, Chromium |
 | [robust-doc](skills/robust-doc/) | Adversarial verification and strengthening of technical documents | Web search access |
-| [shellcheck](skills/shellcheck/) | Lint shell scripts with shellcheck, fix warnings, validate correctness | shellcheck or shellcheck-py |
+| [shellcheck](skills/shellcheck/) | Lint shell scripts with ShellCheck and PowerShell scripts with PSScriptAnalyzer | shellcheck-py, PSScriptAnalyzer |
 | [technical-report](skills/technical-report/) | Generate professional DOCX technical reports with python-docx: table formatting, alignment rules, image embedding, page layout, and matplotlib integration | Python 3.10+, python-docx; matplotlib *(optional)* |
 | [uv](skills/uv/) | Use `uv` instead of pip/python/venv for scripts, dependencies, and builds | [uv](https://docs.astral.sh/uv/) |
 
@@ -79,6 +79,7 @@ Skill-specific tools:
 | pdftoppm (Poppler) | netlist-to-schematic | `winget install --id=oschwartz10612.Poppler` | `sudo apt install poppler-utils` |
 | Node.js + npm | mermaid | [nodejs.org](https://nodejs.org/) / `winget install --id=OpenJS.NodeJS` | `sudo apt install nodejs npm` / `brew install node` |
 | shellcheck | shellcheck | `pip install shellcheck-py` | `pip install shellcheck-py` / `sudo apt install shellcheck` |
+| PSScriptAnalyzer | shellcheck | `Install-Module PSScriptAnalyzer -Scope CurrentUser` | `Install-Module PSScriptAnalyzer -Scope CurrentUser` |
 | playwright-cli | playwright-cli | Bundled with Copilot CLI Playwright MCP server | Same |
 
 > **Note:** ParaView is a GUI visualization tool for inspecting Elmer results — it is not
@@ -168,7 +169,7 @@ agent-skills/
     │   ├── README.md
     │   ├── install.sh
     │   └── install.ps1
-    ├── shellcheck/         ← shell script linting skill
+    ├── shellcheck/         ← script linting skill
     │   ├── SKILL.md
     │   ├── AGENTS.md
     │   ├── README.md
