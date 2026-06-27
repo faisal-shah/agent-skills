@@ -126,6 +126,42 @@ For each verified or unverified claim, apply these challenges:
 - If Section 3 says 14 kV and Section 7 says 16 kV, which is correct?
 - Do the schematics match the calculations?
 
+### 3g. Generated Artifact Consistency
+- Treat rendered figures, tables, schematics, code excerpts, generated decks,
+  and previews as claims.
+- Identify each artifact's source of truth, then compare source data → rendered
+  artifact → caption → prose for counts, labels, topology, units, scales, and
+  claim boundaries.
+- Do not accept "the build passed" as visual correctness; inspect the rendered
+  artifact when it is public, decision-critical, complex, or recently suspect.
+
+### 3h. Independent Reviewer Loop
+- For high-stakes or large reviews, spawn scoped critics with the most capable
+  available model. Prefer the agent's native sub-agent/reviewer mechanism when
+  available.
+- If native sub-agents are unavailable, launch out-of-process reviewers through
+  a local agent CLI such as GitHub Copilot CLI or OpenAI Codex CLI; discover
+  current flags with `--help` instead of relying on stale examples.
+- Give each critic raw artifacts and a narrow question. Do not pass your
+  intended answer unless the review explicitly requires it.
+- For very large evidence sets, create a minified source, split it into
+  overlapping slices, assign scoped slice critics, then run one holistic critic
+  over the full/minified evidence plus slice findings.
+- Treat findings as hypotheses. Classify each as reproduced bug, false
+  positive, risk, or out-of-scope before changing the document.
+- Require a done artifact or inspect output yourself; do not trust a background
+  reviewer merely because it exited without visible errors.
+
+### 3i. Escaped Defect Sweep
+- When a defect escapes prior review, write a brief multi-why, name the bug
+  class, and sweep for sibling failures across codepaths, generated artifacts,
+  tests, captions, prose, manifests, and stale outputs.
+- Turn reviewer caveats into evidence: a minimal check, reproduction, failing
+  fixture, calculation, or citation before acting on them.
+- After any major method or model change, grep source, docs, comments, captions,
+  manifests, generated prose, and build scripts for stale terms and overbroad
+  claims from the old approach.
+
 Update the tracking table with findings from adversarial analysis.
 
 ## Phase 4: CROSS-REFERENCE — Find Authoritative Sources

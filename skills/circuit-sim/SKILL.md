@@ -105,6 +105,10 @@ quit
 
 Run with: `ngspice -b circuit.cir`
 
+Keep the trailing `quit`: in batch `.control` decks, omitting it can leave a
+success-shaped run with a nonzero process exit. Smoke runners must propagate the
+return code and inspect logs, not just parse output files.
+
 **Simple alternative:** `ngspice -b -r output.raw circuit.cir` writes all signals
 automatically — but **silently suppresses `.meas` results**. Use only without `.meas`.
 
@@ -122,7 +126,7 @@ For unattended or generated studies, treat a run as valid only after checking:
 - expected variables are present before indexing
 - timeout for sweeps or generated cases
 - high-signal log terms: `error`, `fatal`, `singular`, `timestep`,
-  `convergence`, `timeout`, `aborted`
+  `convergence`, `timeout`, `aborted`, `no simulations run`, failed `.meas`
 - manifest with ngspice executable/version, netlist, rawfile, log, metrics, and
   plot paths
 
@@ -133,6 +137,7 @@ Common batch failures:
 | `write output.raw` is reported as an unknown model/element | Control command parsed as circuit syntax | Put `run`/`write` inside `.control ... .endc` in a complete netlist, then run `ngspice -b circuit.cir` |
 | Batch run says no simulations ran | No usable `.control`, `.print`, `.plot`, `.save`, or raw output path | Add `.control` with `run` + `write output.raw`, or use `-b -r output.raw` |
 | Rawfile exists but arrays are empty | Run failed after opening the file | Inspect return code/log and rawfile header before parsing data |
+| Output files exist but process return code is nonzero | `.control` did not terminate cleanly, often missing `quit` | Add `quit`; fail the automation until rc/logs are clean |
 
 ### Selective Output with .save
 
@@ -406,6 +411,11 @@ ngspice status/memory lines such as `doing analysis at temp` and
 `total elapsed time`. Use both `MAX` and `MIN`, or post-process absolute peaks
 in Python, for bipolar transient waveforms.
 
+ngspice `.meas` is less portable than raw/CSV post-processing. If
+`.meas FIND v(a,b)` or expressions such as `abs(i(...))` fail, define helper
+vectors in `.control` (`let vd = v(a)-v(b)`), add a differential monitor or
+zero-volt sense source, or compute the metric from saved raw/CSV data in Python.
+
 ---
 
 ## 8. Plotting Conventions
@@ -519,6 +529,11 @@ quit
 
 For programmatic exporters or large generated systems:
 
+- keep one canonical generation path; do not hand-maintain a second "same"
+  deck or compare against stale orphan outputs
+- validate exporter CLI boundaries before generation: reject zero/negative
+  lengths, invalid time constants, impossible section counts, and oversized
+  expansions with clear errors rather than tracebacks
 - use safe deterministic SPICE names; avoid punctuation that complicates
   rawfile lookup
 - emit values in scientific notation to avoid suffix ambiguity (`M` is milli)
@@ -531,6 +546,11 @@ For programmatic exporters or large generated systems:
 - label per-section values separately from series/parallel equivalent values
 - add model-scope comments when a simplified equivalent is intentional, such as
   fixed-frequency `R_ac` represented by a constant transient resistor
+- clean output directories or manifest-check expected vs unexpected generated
+  decks before validation
+- smoke-test every generated deployment form: baked and parametric netlists,
+  each simulator dialect, realistic cascaded subcircuits, and at least two
+  parameter values to prove knobs are live
 - write a manifest containing original netlist, instrumented netlist, rawfile,
   log, metrics JSON/CSV, and plots
 
@@ -691,6 +711,8 @@ pytestmark = pytest.mark.skipif(
 
 - run with a timeout and include stdout/stderr on failure
 - assert the rawfile/CSV exists and contains nonzero data
+- instantiate generated subcircuits the way users will: realistic cascades,
+  parameter overrides, and no over-grounded harness that masks floating nodes
 - compare scalar metrics and waveform overlays, not just solver success
 - interpolate adaptive ngspice timesteps before RMS/error comparisons
 - compare sign, magnitude, timing, and energy separately

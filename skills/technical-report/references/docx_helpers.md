@@ -47,6 +47,32 @@ def add_rich_text(paragraph, text: str, bold_phrases: list[str]) -> None:
 Use this for brief emphasis, not for whole paragraphs. If many phrases need
 semantic styling, store them in a data structure at the top of the generator.
 
+## Multiline Code Blocks
+
+Do not put a multiline code excerpt in one run with embedded `\n`; Word can
+render it as a flattened paragraph. Insert explicit line breaks:
+
+```python
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Pt
+
+
+def add_code_block(doc, code: str) -> None:
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p.paragraph_format.space_before = Pt(4)
+    p.paragraph_format.space_after = Pt(6)
+    for index, line in enumerate(code.splitlines()):
+        if index:
+            p.add_run().add_break()
+        run = p.add_run(line)
+        run.font.name = "Consolas"
+        run.font.size = Pt(8.5)
+```
+
+After adding important code blocks, reopen/render the DOCX and verify line
+breaks survived.
+
 ## Landscape Section Helper
 
 Use landscape only for wide tables or schematics. Return to portrait afterward
@@ -124,4 +150,3 @@ add_body(doc, "Notes: RMS values are line-to-line unless otherwise stated.")
 render high-DPI equation images with transparent or white backgrounds, place
 them under `figs/`, caption them if they are standalone, and include the source
 LaTeX string in the manifest or generator.
-

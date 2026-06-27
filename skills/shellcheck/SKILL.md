@@ -33,6 +33,10 @@ Install-Module PSScriptAnalyzer -Scope CurrentUser
 PSScriptAnalyzer is the PowerShell equivalent and a separate module; it is not
 bundled with PowerShell.
 
+If `pwsh` or `PSScriptAnalyzer` is unavailable, state the exact skip reason and
+do not claim the PowerShell lint passed. ShellCheck success does not validate
+PowerShell files.
+
 ## Shell Scripts
 
 ```bash
@@ -67,6 +71,9 @@ Invoke-ScriptAnalyzer -Path .\script.ps1 -Fix
 Use `-Fix` only when the change is safe, then review the diff. Fix all
 diagnostics and re-run PSScriptAnalyzer. Results must be clean before reporting
 done.
+
+If the analyzer cannot run, report the missing executable/module and leave the
+PowerShell validation status as skipped, not clean.
 
 ## Template Files
 

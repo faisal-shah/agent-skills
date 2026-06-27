@@ -90,6 +90,11 @@ playwright-cli screenshot --filename=page.png
 playwright-cli pdf --filename=page.pdf
 ```
 
+For report-facing screenshots, wait for fonts/network/animations to settle,
+capture both a full page and targeted element when useful, then inspect the
+image for clipping, overlaps, wrong bounding boxes, and blank/late-loaded
+regions before embedding it as evidence.
+
 ### Tabs
 
 ```bash

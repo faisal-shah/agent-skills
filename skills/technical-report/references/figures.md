@@ -13,6 +13,9 @@ Each figure should have:
 - nearby body text explaining the engineering point;
 - a review note in `figure_review_log.txt`.
 
+Before final QA, clean or manifest-check generated figure directories so every
+embedded figure is from the current build and no orphaned old figure is reused.
+
 ## Matplotlib Defaults
 
 ```python
@@ -92,6 +95,18 @@ Figure 4 - fix: moved legend below plot, increased bottom margin.
 Figure 4 - status: accepted after rerender.
 ```
 
+## Semantic Figure Checks
+
+Visual polish is not enough. Verify the figure says the same thing as the data,
+caption, and body text:
+
+- axes, units, scale type, and legend labels match the source data;
+- model, reference, measured, inferred, and unavailable values are distinguishable;
+- captions describe every panel actually shown and do not mention missing panels;
+- very different magnitudes or units use separate panels, normalization, or a
+  clearly labeled secondary axis instead of one misleading linear axis;
+- zero/NA bars or blank regions are explicitly labeled when they carry meaning.
+
 ## PDF Export and Page Previews
 
 Use the strongest available preview path:
@@ -111,7 +126,7 @@ pages or screenshots were actually reviewed.
 - Every figure appears near the relevant text.
 - Captions are directly below figures and numbered sequentially.
 - Axis labels, tick labels, legends, and callouts are readable at embed size.
+- Axes, units, panel captions, and model/reference labels match the plotted data.
 - Tables do not overflow page margins.
 - No stale screenshots, blank images, clipped labels, or cropped legends.
 - Conclusions are supported by the visible figure or cited source.
-

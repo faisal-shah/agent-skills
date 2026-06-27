@@ -68,6 +68,22 @@ Omissions or summaries: none / listed here
 Do not stop at "the LaTeX compiled" for exact schematics. Count and trace the
 netlist items before calling the drawing done.
 
+### Programmatically generated schematics
+
+When code emits both a netlist/model and a schematic, make the two artifacts
+share the same source of truth whenever possible. If the drawing cannot be
+derived directly from the emitted netlist, add assertions before rendering:
+
+- repeated-block counts in source data == drawn instances;
+- each drawn branch maps to a source element/group and endpoint node pair;
+- representative rendered values match the source values;
+- no layout helper silently drops data (`zip(..., strict=True)` or explicit
+  length assertions for coordinates, labels, parsed elements, and fitted cells).
+
+For intentional compression, mark the mode as presentation/abstraction and
+write the expected source count plus rendered count in the visible note or
+manifest.
+
 ---
 
 ## 2. Reading a Netlist for Schematic Purposes
@@ -521,14 +537,22 @@ compilation fails.
 After viewing the PNG, verify:
 
 - The schematic mode is stated if anything was abstracted or simplified
+- Required LaTeX/Circuitikz packages were available; the render did not fall
+  back, omit symbols, or leave warnings that affect the image
 - The `.tex` source is saved beside the rendered `.png`
 - All netlist components are present (count them)
 - Topology is correct (trace each netlist line → schematic connection)
+- Repeated/generated sections have the expected rendered count and node pairs
 - Polarity is correct for diodes, coupled inductors, transformers, and switches
 - No label overlaps (especially vertical components)
 - Signal flow reads left-to-right
 - All ground connections have `node[ground]{}`
 - Transformer has core lines and polarity dots
+- Taps and connected junctions have visible dots where ambiguity is possible
+- Probe/sense/measurement terminations are unambiguous and not mistaken for
+  floating or simulated topology
+- Long or multiline labels are short, wrapped, or moved to a table/callout; view
+  the rendered image because multiline `.tex` labels can garble in dense figures
 - Stage boxes don't clip component labels
 - Timing callouts, probes, sensors, and tables do not overlap the circuit
 - Large section renders are nonblank, uniquely named, and readable
@@ -580,3 +604,4 @@ After viewing the PNG, verify:
 | `pgfkeys Error: key '/tikz/out' requires a value` | Color name collides with TikZ key | Rename color (e.g., `out`→`ogrn`); avoid `in`, `at`, `to` etc. |
 | Transformer bumps face wrong direction | `mirror` on wrong winding | `mirror` goes on winding whose bumps must face the coupling gap |
 | Polarity dots between windings | Dots placed on gap side | Dots go on **outer face** (away from coupling gap) |
+| Generated schematic has too few repeated cells | Fixed layout list or plain `zip()` truncated data | Use shared source data plus `zip(..., strict=True)` or explicit count assertions |

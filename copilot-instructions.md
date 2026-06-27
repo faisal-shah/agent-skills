@@ -16,6 +16,19 @@
 - **Lint deliverable scripts:** Run `shellcheck` on deliverable `.sh`/`.bash` scripts and `PSScriptAnalyzer` on deliverable `.ps1`/`.psm1`/`.psd1` scripts. Do NOT lint ephemeral one-liners or inline shell used during task execution. Fix all warnings/diagnostics before reporting completion.
 - **Profile before optimizing:** Use real data to identify bottlenecks. When performance is critical, target dramatic speedups (10-100x).
 
+## Generated Artifacts & Interfaces
+
+- **Single source of truth:** Avoid duplicate independent sources for generated
+  outputs. If two artifacts represent the same model/data, derive them from one
+  source or add manifest/count/semantic checks that prove they agree.
+- **Verify rendered/generated deliverables:** For important outputs, do not stop
+  at "the build passed." Compare source data → generated file → rendered
+  artifact → docs/prose, and inspect rendered figures/diagrams/reports when
+  visual correctness matters.
+- **Validate CLI boundaries:** For scripts, exporters, and CLIs, validate user
+  inputs at the parser/library boundary with clear errors for invalid ranges,
+  paths, counts, modes, and incompatible options.
+
 ## Tool Preferences
 
 - **Python:** Always use `python3` (never just `python`)

@@ -62,12 +62,17 @@ in the user's Windows-facing location when useful.
 - **Regenerate, do not patch:** centralize assumptions, constants, source paths,
   figure metadata, expected counts, key phrases, and banned stale phrases at the
   top of the generator.
+- **Update QA with content changes:** when figures, tables, or generated
+  artifacts are added/removed, update named artifact lists, manifests, required
+  phrase/banned-phrase checks, and expected-count assertions in the same change.
 - **Fail loudly for missing assets:** raise on missing figures or source files
   unless the user explicitly asks for placeholders.
 - **Alignment rule:** body paragraphs are justified; bullets and numbered lists
   are always left-aligned. Never justify list items.
 - **Figures are separate artifacts:** generate them first, review them, then
   embed them. Every figure needs nearby explanatory text and a numbered caption.
+- **Captions are generated, not hand-numbered:** use report-owned counters for
+  figures/tables and verify numbering is unique, sequential, and gapless.
 - **QA is mandatory:** reopen the DOCX, count structure, scan for stale text,
   verify assets, and export/render previews when tools are available.
 - **Windows/Office friction:** prefer standalone `.py` files over inline
@@ -109,6 +114,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -137,7 +143,6 @@ MANIFEST = PACKAGE / "report_manifest.json"
 SOURCE_DOCS = [
     SOURCE_DIR / "source_document.pdf",
 ]
-EXPECTED_IMAGES = 1
 EXPECTED_TABLES = 1
 KEY_PHRASES = ["Report Name"]
 BANNED_PHRASES = ["old estimate", "placeholder", "[IMAGE NOT FOUND"]
@@ -154,9 +159,16 @@ class FigureSpec:
     width_in: float = 6.25
 
 
+@dataclass
+class CaptionCounter:
+    figures: int = 0
+    tables: int = 0
+
+
 FIGURES = [
     FigureSpec(FIG_DIR / "figure_1.png", "Figure caption."),
 ]
+CAPTIONS = CaptionCounter()
 
 
 def require_files(paths: Iterable[Path]) -> None:
@@ -250,13 +262,23 @@ def add_caption(doc: Document, text: str) -> None:
     r.font.size = Pt(9)
 
 
-def add_figure(doc: Document, spec: FigureSpec, number: int) -> None:
+def next_figure_caption(text: str) -> str:
+    CAPTIONS.figures += 1
+    return f"Figure {CAPTIONS.figures}. {text}"
+
+
+def next_table_caption(text: str) -> str:
+    CAPTIONS.tables += 1
+    return f"Table {CAPTIONS.tables}. {text}"
+
+
+def add_figure(doc: Document, spec: FigureSpec) -> None:
     if not spec.path.exists():
         raise FileNotFoundError(f"Missing figure: {spec.path}")
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.add_run().add_picture(str(spec.path), width=Inches(spec.width_in))
-    add_caption(doc, f"Figure {number}. {spec.caption}")
+    add_caption(doc, next_figure_caption(spec.caption))
 
 
 def add_table(
@@ -309,7 +331,7 @@ def add_table(
             for col_index, width in enumerate(col_widths):
                 row.cells[col_index].width = Inches(width)
 
-    add_caption(doc, caption)
+    add_caption(doc, next_table_caption(caption))
 
 
 def save_with_word_open_fallback(doc: Document, path: Path) -> Path:
@@ -335,6 +357,15 @@ def document_text(doc: Document) -> str:
     return "\n".join(parts)
 
 
+def caption_numbers(captions: Sequence[str], kind: str) -> list[int]:
+    pattern = re.compile(rf"^{kind} (\d+)\.")
+    return [
+        int(match.group(1))
+        for caption in captions
+        if (match := pattern.match(caption))
+    ]
+
+
 def verify_docx(path: Path) -> dict[str, object]:
     doc = Document(path)
     text = document_text(doc)
@@ -352,8 +383,9 @@ def verify_docx(path: Path) -> dict[str, object]:
     ]
 
     failures = []
-    if images < EXPECTED_IMAGES:
-        failures.append(f"expected at least {EXPECTED_IMAGES} images, found {images}")
+    expected_images = len(FIGURES)
+    if images < expected_images:
+        failures.append(f"expected at least {expected_images} images, found {images}")
     if tables < EXPECTED_TABLES:
         failures.append(f"expected at least {EXPECTED_TABLES} tables, found {tables}")
     for phrase in KEY_PHRASES:
@@ -362,6 +394,11 @@ def verify_docx(path: Path) -> dict[str, object]:
     for phrase in BANNED_PHRASES:
         if phrase.lower() in text.lower():
             failures.append(f"banned/stale phrase present: {phrase}")
+    for kind in ("Figure", "Table"):
+        numbers = caption_numbers(captions, kind)
+        expected = list(range(1, len(numbers) + 1))
+        if numbers != expected:
+            failures.append(f"{kind} captions not sequential/gapless: {numbers}")
     for section in doc.sections:
         width = round(section.page_width.inches, 2)
         height = round(section.page_height.inches, 2)
@@ -396,6 +433,8 @@ def write_manifest(output_path: Path, qa: dict[str, object]) -> None:
 
 
 def build_report() -> Path:
+    CAPTIONS.figures = 0
+    CAPTIONS.tables = 0
     require_files(SOURCE_DOCS)
     require_files(spec.path for spec in FIGURES)
 
@@ -416,7 +455,7 @@ def build_report() -> Path:
     add_body(doc, "List the source documents, data files, and calculations used.")
     add_table(
         doc,
-        "Table 1. Source evidence used for the report.",
+        "Source evidence used for the report.",
         ["Source", "Use", "Status"],
         [[path.name, "Input evidence", "Available"] for path in SOURCE_DOCS],
         first_col_left=True,
@@ -425,8 +464,8 @@ def build_report() -> Path:
 
     doc.add_page_break()
     doc.add_heading("3. Results", level=1)
-    for number, spec in enumerate(FIGURES, start=1):
-        add_figure(doc, spec, number)
+    for spec in FIGURES:
+        add_figure(doc, spec)
         add_body(doc, "Explain what this figure proves and any limitations.")
 
     saved_path = save_with_word_open_fallback(doc, OUTPUT_DOCX)
@@ -460,8 +499,12 @@ skill's TLS guidance (`--native-tls` and PyPI insecure-host flags).
 3. Review at the size it will appear in Word: labels readable, no clipped axes,
    no legend/data overlap, no colorbar overlap, no blank screenshots, no
    transparent background surprises.
-4. Record defects and fixes in `figure_review_log.txt`.
-5. Only then embed figures and rerun DOCX QA.
+4. Review semantics: axes, units, scales, model/reference labels, and captions
+   must match the plotted data. Use separate panels, normalization, or a
+   secondary axis for very different magnitudes/units; captions must describe
+   every panel actually shown.
+5. Record defects and fixes in `figure_review_log.txt`.
+6. Only then embed figures and rerun DOCX QA.
 
 Use this critic prompt for important figures:
 
@@ -496,15 +539,21 @@ Read `references/edit_existing.md` before editing an existing report.
 Run the strongest available checks without blocking on unavailable GUI tools:
 
 1. **Package checks:** required source docs, data, figures, generator, and
-   manifest exist.
+   manifest exist; stale/orphan generated files are absent or explicitly
+   explained.
 2. **DOCX structural checks:** reopen with `python-docx`; count images, tables,
-   captions, headings, sections; verify key phrases and banned stale phrases.
+   captions, headings, sections; verify key phrases, banned stale phrases, and
+   unique/gapless Figure/Table numbering.
 3. **Layout checks:** verify section page sizes and orientation; ensure figures
    are not wider than the printable page.
 4. **PDF export:** if LibreOffice or Word automation is available, export a PDF
    preview.
 5. **Page previews:** if PDF rendering tools are available, render preview pages
    and inspect figures/tables visually.
+
+Structural DOCX checks prove packaging, not visual correctness. For important
+reports, inspect rendered PDF/page previews or screenshots before claiming the
+report is visually reviewed.
 
 If export/render tools are unavailable, say which checks were skipped and keep
 the structural QA results in `report_manifest.json`.
@@ -515,9 +564,11 @@ the structural QA results in `report_manifest.json`.
 |---|---|---|
 | Ugly wide spaces in bullets | List items were justified | Set all list paragraphs to `WD_ALIGN_PARAGRAPH.LEFT`. |
 | Missing images but DOCX exists | Asset path wrong or placeholder fallback | Raise on missing assets and verify image relationships. |
+| Old figure appears in final report | Output dir reused without clean rebuild | Clean generated dirs or manifest-check expected vs unexpected artifacts. |
 | Figure unreadable in Word | Plot reviewed only at full image size | Review at embed width; increase DPI/font sizes or simplify. |
 | Page size changed unexpectedly | Existing document edit reset sections | Verify every section width, height, margins, and orientation. |
 | `PermissionError` on save | DOCX open in Word | Save `_updated.docx` and report the fallback path. |
 | PowerShell heredoc/tool-call failure | Long inline script on Windows | Write a standalone `.py` file and run it with `uv run`. |
 | Unicode errors in PDF | Built-in PDF font lacks glyphs | Normalize text or register a Unicode TTF; see PDF reference. |
 | Stale conclusions remain | Manual patching instead of regeneration | Centralize assumptions and banned phrases, then regenerate. |
+| Code block appears flattened | One DOCX run contained embedded `\n` | Insert explicit Word line breaks or separate paragraphs; see DOCX helpers. |

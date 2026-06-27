@@ -1,34 +1,54 @@
 ---
 name: mermaid
-description: "Must read guide on creating/editing mermaid charts with valiation tools"
+description: "Create and validate Mermaid diagrams with the official Mermaid CLI. Use for Mermaid fenced Markdown diagrams, .mmd files, rendered SVG/PNG/PDF artifacts, and visual QA of important diagrams."
 ---
 
 # Mermaid Skill
 
-Use this skill to quickly validate Mermaid diagrams by parsing + rendering them with the official Mermaid CLI.
+Use this skill to create or edit Mermaid diagrams and validate them with the
+official Mermaid CLI (`mmdc`). GitHub renders fenced `mermaid` blocks natively,
+but validating locally catches syntax/rendering failures before docs are updated.
 
 ## Prerequisites
 
-- Node.js + npm (for `npx`).
-- First run downloads a headless Chromium via Puppeteer. If Chromium is missing, set `PUPPETEER_EXECUTABLE_PATH`.
+- Node.js + npm for `npx`.
+- A browser usable by Puppeteer. `tools/validate.sh` auto-detects common
+  Chrome/Chromium executables and passes them to `mmdc` with a Puppeteer config.
+  If detection fails, set `PUPPETEER_EXECUTABLE_PATH` or
+  `MERMAID_PUPPETEER_CONFIG`.
 
 ## Tool
 
-### Validate a diagram
-
 ```bash
-./tools/validate.sh diagram.mmd [output.svg]
+./tools/validate.sh diagram.mmd [output.svg|output.png|output.pdf]
+./tools/validate.sh README.md [validated.md]
 ```
 
-- Parses and renders the Mermaid source.
-- Non-zero exit = invalid Mermaid syntax.
-- Prints an ASCII preview using `beautiful-mermaid` (best-effort; not all diagram types are supported).
-- If `output.svg` is omitted, the SVG is rendered to a temp file and discarded.
+- `.mmd` input renders one diagram.
+- `.md` input lets `mmdc` extract Mermaid fences, render artifacts, and rewrite
+  Markdown references.
+- If output is omitted, the tool renders to a temporary file and removes it.
+- Non-zero exit means syntax, rendering, or browser setup failed.
 
-## Workflow (short)
+## Workflow
 
-1. **If the diagram will live in Markdown**: draft it in a standalone `diagram.mmd` first (the tool only validates plain Mermaid files).
-2. Write/update `diagram.mmd`.
-3. Run `./tools/validate.sh diagram.mmd`.
-4. Fix any errors shown by the CLI.
-5. Once it validates, copy the Mermaid block into your Markdown file.
+1. For a new diagram, draft in a standalone `.mmd` file for fast iteration.
+2. Run `./tools/validate.sh diagram.mmd rendered.svg` and fix errors.
+3. If the final deliverable is Markdown, copy the Mermaid block into the target
+   `.md` and run `./tools/validate.sh target.md /tmp/target.validated.md`.
+4. For important/public diagrams, inspect the rendered SVG/PNG for clipping,
+   wrapped labels, ambiguous endpoints, and semantic mismatch; syntax success is
+   not visual QA.
+5. Keep rendered assets only when the deliverable needs images/PDFs/previews;
+   otherwise prefer source Mermaid in Markdown for GitHub docs.
+
+## Browser troubleshooting
+
+If validation fails because Chrome/Chromium cannot be found:
+
+- install Chrome/Chromium; or
+- set `PUPPETEER_EXECUTABLE_PATH=/path/to/chrome`; or
+- create a Puppeteer config JSON and set `MERMAID_PUPPETEER_CONFIG`, e.g.
+  `{ "executablePath": "/usr/bin/chromium" }`; or
+- install Puppeteer's browser cache with
+  `npx -y puppeteer browsers install chrome-headless-shell`.

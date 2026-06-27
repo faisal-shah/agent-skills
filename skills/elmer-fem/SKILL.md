@@ -102,7 +102,12 @@ gmsh.option.setNumber("Mesh.MeshSizeFromPoints", 0)
 gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 0)
 ```
 
-If running a frequency sweep, size the mesh for the **highest** frequency (smallest δ).
+If running a frequency sweep, size the mesh for the **highest** frequency
+(smallest δ). When reporting AC/harmonic results, include the mesh-resolved
+frequency basis: for minimum conductor-surface element size `h_min`, the δ/4
+rule implies `f_max ≈ 1 / (π μ σ (4 h_min)^2)`. Warn the user if requested
+frequencies exceed the band resolved by the actual mesh, and keep analytical or
+canonical-case comparisons as validation anchors.
 
 ### Salome vs Gmsh
 
@@ -870,7 +875,8 @@ For expensive or long-running studies, keep an inspectable case directory:
 - scalar outputs such as `scalars.dat`, `capacitance.dat`, and their `.names`
   files;
 - reduced result JSON/CSV with metadata: mesh profile, frequency/timestep,
-  solver tolerances, Elmer version, and script/config inputs.
+  requested frequency band, mesh-resolved `f_max`, solver tolerances, Elmer
+  version, and script/config inputs.
 
 Reduce large field outputs to durable engineering scalars when possible:
 capacitance, R/L, stored energy, Joule loss, peak field, matrix symmetry error,

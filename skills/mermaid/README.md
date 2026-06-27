@@ -10,7 +10,7 @@ for creating and validating Mermaid diagrams with the official Mermaid CLI.
 | File | Required | Purpose |
 |------|----------|---------|
 | SKILL.md           | yes | Workflow guide and validation instructions |
-| tools/validate.sh  | yes | Validates `.mmd` files with mmdc + ASCII preview |
+| tools/validate.sh  | yes | Validates `.mmd` and Markdown Mermaid diagrams with `mmdc` |
 | README.md          | no  | Human-facing usage notes (this file) |
 | AGENTS.md          | no  | AI context for developing this skill |
 | install.sh         | yes | Installs the skill (bash) |
@@ -38,8 +38,9 @@ for creating and validating Mermaid diagrams with the official Mermaid CLI.
 
 ## Prerequisites
 
-- Node.js + npm (for `npx`)
-- First run downloads a headless Chromium via Puppeteer
+- Node.js + npm for `npx`
+- Chrome/Chromium available to Puppeteer, or a Puppeteer config passed via
+  `MERMAID_PUPPETEER_CONFIG`
 
 ## Quick Start
 
@@ -47,15 +48,17 @@ Ask the agent: *"create a mermaid diagram of the authentication flow"*
 
 The skill workflow:
 1. Draft diagram in a standalone `diagram.mmd`
-2. Validate with `./tools/validate.sh diagram.mmd`
-3. Fix any errors
+2. Validate/render with `./tools/validate.sh diagram.mmd rendered.svg`
+3. Fix any errors and visually inspect important diagrams
 4. Copy the validated block into the target Markdown file
+5. Validate final Markdown with `./tools/validate.sh README.md /tmp/README.validated.md`
 
 ## What the Skill Covers
 
 1. Mermaid CLI validation via `npx @mermaid-js/mermaid-cli`
-2. ASCII preview via `beautiful-mermaid`
-3. Standalone-file-first workflow to avoid embedding broken diagrams
+2. Browser configuration for local Chrome/Chromium via Puppeteer config
+3. `.mmd` and Markdown Mermaid-block validation
+4. Render-then-view visual QA for important diagrams
 
 ## License
 

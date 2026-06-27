@@ -66,10 +66,14 @@ For generated scripts, put the contract in the file before the first run:
 Agent checklist:
 
 1. Include every non-stdlib import in the metadata.
-2. Smoke-test immediately: `uv run script.py --help` or a tiny real input.
-3. If the output matters, save the script beside the artifact, not only in
+2. If the script imports local modules, include those modules' transitive
+   third-party dependencies too; `py_compile` is not enough.
+3. Smoke-test immediately with real uv execution: `uv run script.py --help` or
+   a tiny real input.
+4. Remove stale metadata dependencies after deleting functionality.
+5. If the output matters, save the script beside the artifact, not only in
    `/tmp`.
-4. If multiple scripts share heavy deps, consolidate or reuse one script to
+6. If multiple scripts share heavy deps, consolidate or reuse one script to
    avoid repeated resolver/install output.
 
 See [references/scripts.md](references/scripts.md) for script locking,
@@ -179,7 +183,9 @@ inclusion/exclusion.
 | Symptom | Response |
 |---|---|
 | `ModuleNotFoundError` only under `uv run` | Add PEP 723 dependency, use `--with`, set `PYTHONPATH`, or expose private index. |
+| Local helper import works but helper dependency fails | Add the helper's transitive dependency to the script metadata and rerun `uv run`. |
 | Resolver stalls or TLS/certificate errors on Windows | Retry with `--native-tls` and both PyPI insecure-host flags. |
 | `uv run python -m build` fails | Use `uv build` or add `--with build`. |
 | `uv_build` packages the wrong module | Check normalized project name; set `[tool.uv.build-backend].module-name`. |
+| Dynamic dataclass/module import fails oddly | Register the loaded module in `sys.modules` before `exec_module`. |
 | Huge install output swamps the tool result | Use one consolidated script or quiet/targeted validation; inspect logs only on failure. |

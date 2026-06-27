@@ -52,8 +52,12 @@ Then just: `uv run script.py`
 ### Agent Checklist
 
 - Put every import outside the standard library into `dependencies`.
+- For local module imports, include transitive third-party dependencies used by
+  those local modules too.
 - Add version bounds when reproducibility matters.
-- Run `uv run script.py --help` or the smallest real input immediately.
+- Run `uv run script.py --help` or the smallest real input immediately; do not
+  rely on `py_compile` alone.
+- Remove stale dependencies from the PEP 723 block after deleting features.
 - Keep scripts that generate reports, figures, or engineering artifacts in a
   durable location with the output. Use `/tmp` only for disposable scratch.
 - If multiple scripts share heavy packages such as `matplotlib`, `scipy`,
@@ -145,6 +149,7 @@ chmod +x myscript
 |---|---|
 | Import works with `python3` but not `uv run` | Add the package to PEP 723 metadata or use `uv run --with package ...`. |
 | Local package checkout is needed | Prefix with `PYTHONPATH="$PWD"` or the exact `src` path. |
+| Local helper imports a third-party package | Add that transitive dependency to the caller script metadata. |
 | Private package cannot resolve | Export `UV_EXTRA_INDEX_URL` or add an inline index. |
 | First run downloads large browser/GUI/science deps | Expect slow output; keep dependencies stable and avoid repeated script fragmentation. |
 | Dataclass-heavy module imported dynamically from a PEP 723 script | Register the module in `sys.modules` before executing the imported module. |
