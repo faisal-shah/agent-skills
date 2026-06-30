@@ -20,6 +20,12 @@ Elmer FEM setup, schematic drawing, and persistent memory across sessions.
 | [technical-report](skills/technical-report/) | Generate professional DOCX technical reports with python-docx: table formatting, alignment rules, image embedding, page layout, and matplotlib integration | Python 3.10+, python-docx; matplotlib *(optional)* |
 | [uv](skills/uv/) | Use `uv` instead of pip/python/venv for scripts, dependencies, and builds | [uv](https://docs.astral.sh/uv/) |
 
+## Profiles
+
+| Profile | Description | Launch |
+|---------|-------------|--------|
+| [build123d](profiles/build123d/) | Installs a Codex profile and Copilot custom agent for build123d-mcp CAD modeling, drawing, measurement, rendering, and export workflows | `codex --profile build123d` / `copilot --agent build123d` |
+
 ## Installation
 
 Install all skills at once, or pick individual ones. Installers default to both
@@ -32,6 +38,9 @@ and `~/.codex/skills`.
 ./install.sh                                        # all skills → both Copilot and Codex
 ./install.sh --copilot                              # all skills → Copilot only
 ./install.sh --codex                                # all skills → Codex only
+./install.sh --no-profiles                          # skills and instructions only
+./install.sh --install-shell-aliases                # add codex-build123d and copilot-build123d helpers
+./install.sh --smoke-test-build123d                 # verify build123d-mcp launches
 ./skills/circuit-sim/install.sh --copilot           # individual skill
 ./install.sh --skills-dir .github/skills            # custom path
 ./install.sh --uninstall                            # remove from both default dirs
@@ -43,6 +52,9 @@ and `~/.codex/skills`.
 .\install.ps1                                       # all skills → both Copilot and Codex
 .\install.ps1 -Copilot                              # all skills → Copilot only
 .\install.ps1 -Codex                                # all skills → Codex only
+.\install.ps1 -NoProfiles                           # skills and instructions only
+.\install.ps1 -InstallPowerShellAliases             # add codex-build123d and copilot-build123d helpers
+.\install.ps1 -SmokeTestBuild123d                   # verify build123d-mcp launches
 .\skills\circuit-sim\install.ps1 -Copilot           # individual skill
 .\install.ps1 -SkillsDir C:\my\skills               # custom path
 .\install.ps1 -Uninstall                            # remove from both default dirs
@@ -63,6 +75,65 @@ The installer also copies **user-level instruction files** when installing to de
 | GitHub Copilot | `~/.copilot/copilot-instructions.md` | `copilot-instructions.md` |
 | OpenAI Codex | `~/.codex/instructions.md` | `codex-instructions.md` |
 
+The default installer also creates profile files:
+
+| Agent | Installed file |
+|-------|----------------|
+| OpenAI Codex | `~/.codex/build123d.config.toml` |
+| OpenAI Codex | `~/.codex/profiles/build123d/instructions.md` |
+| OpenAI Codex | `~/.codex/profiles/build123d/skills/b123d-modeling/SKILL.md` |
+| OpenAI Codex | `~/.codex/profiles/build123d/skills/b123d-drawing/SKILL.md` |
+| GitHub Copilot CLI | `~/.copilot/agents/build123d.agent.md` |
+| GitHub Copilot CLI | `~/.copilot/profiles/build123d/instructions.md` |
+| GitHub Copilot CLI | `~/.copilot/profiles/build123d/skills/b123d-modeling/SKILL.md` |
+| GitHub Copilot CLI | `~/.copilot/profiles/build123d/skills/b123d-drawing/SKILL.md` |
+
+The build123d profile resolves its workflow files from the installed `build123d-mcp`
+package during installation and configures the MCP server to launch with:
+
+```text
+uv tool run --python 3.12 build123d-mcp@latest
+```
+
+### Launch Helpers
+
+Shell aliases are opt-in. The default install does not modify shell startup
+files.
+
+Install PowerShell helpers on Windows:
+
+```powershell
+.\install.ps1 -InstallPowerShellAliases
+```
+
+Install Bash helpers on Linux, macOS, or WSL:
+
+```bash
+./install.sh --install-shell-aliases
+```
+
+Installed helpers:
+
+| Helper | Command |
+|--------|---------|
+| `codex-build123d` | `codex --profile build123d` |
+| `copilot-build123d` | `copilot --agent build123d` |
+
+The PowerShell installer writes `~/.codex/powershell/agent-modes.ps1` and adds
+a marked source block to the current-user PowerShell profile. The Bash installer
+writes `~/.codex/shell/agent-modes.sh` and adds a marked source block to
+`~/.bashrc`.
+
+Remove the helpers with:
+
+```powershell
+.\install.ps1 -Uninstall -InstallPowerShellAliases
+```
+
+```bash
+./install.sh --uninstall --install-shell-aliases
+```
+
 ## Prerequisites
 
 All skills need **Python 3.10+** and [**uv**](https://docs.astral.sh/uv/) (recommended script runner).
@@ -81,6 +152,7 @@ Skill-specific tools:
 | shellcheck | shellcheck | `pip install shellcheck-py` | `pip install shellcheck-py` / `sudo apt install shellcheck` |
 | PSScriptAnalyzer | shellcheck | `Install-Module PSScriptAnalyzer -Scope CurrentUser` | `Install-Module PSScriptAnalyzer -Scope CurrentUser` |
 | playwright-cli | playwright-cli | Bundled with Copilot CLI Playwright MCP server | Same |
+| build123d-mcp | build123d profile | Installed and launched by `uv` | Installed and launched by `uv` |
 
 > **Note:** ParaView is a GUI visualization tool for inspecting Elmer results — it is not
 > invoked programmatically by the skill and is not required to run simulations.
@@ -103,6 +175,14 @@ agent-skills/
 ├── .gitattributes          ← line-ending rules (LF for .sh, CRLF for .ps1)
 ├── install.sh              ← install all skills (bash)
 ├── install.ps1             ← install all skills (PowerShell)
+├── scripts/
+│   └── install_build123d_profile.py
+├── profiles/
+│   └── build123d/
+│       ├── README.md
+│       └── aliases/
+│           ├── agent-modes.ps1
+│           └── agent-modes.sh
 ├── LICENSE                 ← MIT
 └── skills/
     ├── circuit-sim/        ← ngspice simulation skill
