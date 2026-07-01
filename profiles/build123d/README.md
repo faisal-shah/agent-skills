@@ -10,16 +10,20 @@ Installed files:
 | Codex | `~/.codex/profiles/build123d/instructions.md` |
 | Codex | `~/.codex/profiles/build123d/skills/b123d-modeling/SKILL.md` |
 | Codex | `~/.codex/profiles/build123d/skills/b123d-drawing/SKILL.md` |
+| Codex | `~/.codex/profiles/build123d/viewer/live_viewer_pyvista.py` (POSIX) |
 | Copilot | `~/.copilot/agents/build123d.agent.md` |
 | Copilot | `~/.copilot/profiles/build123d/instructions.md` |
 | Copilot | `~/.copilot/profiles/build123d/skills/b123d-modeling/SKILL.md` |
 | Copilot | `~/.copilot/profiles/build123d/skills/b123d-drawing/SKILL.md` |
+| Copilot | `~/.copilot/profiles/build123d/viewer/live_viewer_pyvista.py` (POSIX) |
 
-The workflow files are sourced from the installed `build123d-mcp` package during installation. The MCP server is launched with:
+The workflow files are sourced from the installed `build123d-mcp` package during installation. The installer installs the server from the `build123d-mcp` main branch (which provides the live session viewer) as a persistent `uv` tool, and the generated config launches that installed executable directly:
 
 ```text
-uv tool run --python 3.12 build123d-mcp@latest
+uv tool install --force --python 3.12 git+https://github.com/pzfreo/build123d-mcp@main
 ```
+
+Launching the installed executable avoids the ~1.5 s per-launch git re-resolution of `uv tool run --from git+...`, which raced MCP-host startup timeouts and intermittently left the server unavailable on session resume. Re-run the installer to update to a newer `main`.
 
 Launch examples:
 
@@ -34,7 +38,33 @@ Optional launch helpers:
 |--------|---------|
 | `codex-build123d` | `codex --profile build123d` |
 | `copilot-build123d` | `copilot --agent build123d` |
+| `build123d-viewer` | open the live 3D viewer (see below) |
 
 Install them with `.\install.ps1 -InstallPowerShellAliases` on Windows or
 `./install.sh --install-shell-aliases` on Linux, macOS, or WSL. They are not
 installed unless that flag is provided.
+
+## Live viewer (POSIX)
+
+On POSIX hosts (Linux, macOS, WSL) the server is launched so each instance binds
+its own live-viewer Unix socket at `/tmp/build123d-mcp.<pid>.sock`. Any number of
+Codex and Copilot agents can run at once without contending for a socket. The
+viewer streams the session's geometry to an interactive, rotatable pyvista window
+that updates after every model change, while the agent keeps driving the tools.
+
+To watch a session:
+
+1. Ask the running agent for its viewer socket path (it reads the path from its
+   own server process), or let the viewer auto-pick the newest socket.
+2. Open the window:
+
+   ```bash
+   build123d-viewer                     # newest /tmp/build123d-mcp.*.sock
+   build123d-viewer /tmp/build123d-mcp.12345.sock   # a specific session
+   ```
+
+`build123d-viewer` runs `viewer/live_viewer_pyvista.py` through `uv`, which pulls
+pyvista and trimesh on demand. Override the socket location for a session with the
+`BUILD123D_VIEWER_SOCKET` environment variable, or disable the socket entirely at
+install time with `--no-viewer`. The viewer is not available on native Windows
+(the server needs an `AF_UNIX` socket), where the socket flag is omitted.

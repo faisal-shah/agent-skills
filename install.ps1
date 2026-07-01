@@ -90,7 +90,7 @@ function Invoke-Build123dSmokeTest {
         throw "uv is required to smoke-test build123d-mcp."
     }
 
-    & uv tool run --python 3.12 "build123d-mcp@latest" --version
+    & uv tool run --python 3.12 --from "git+https://github.com/pzfreo/build123d-mcp@main" build123d-mcp --version
     if ($LASTEXITCODE -ne 0) {
         throw "build123d-mcp smoke test failed."
     }

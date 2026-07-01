@@ -113,7 +113,7 @@ install_build123d_profile() {
 
 smoke_test_build123d() {
     require_uv
-    uv tool run --python 3.12 build123d-mcp@latest --version
+    uv tool run --python 3.12 --from "git+https://github.com/pzfreo/build123d-mcp@main" build123d-mcp --version
 }
 
 strip_alias_block() {

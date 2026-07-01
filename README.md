@@ -83,17 +83,31 @@ The default installer also creates profile files:
 | OpenAI Codex | `~/.codex/profiles/build123d/instructions.md` |
 | OpenAI Codex | `~/.codex/profiles/build123d/skills/b123d-modeling/SKILL.md` |
 | OpenAI Codex | `~/.codex/profiles/build123d/skills/b123d-drawing/SKILL.md` |
+| OpenAI Codex | `~/.codex/profiles/build123d/viewer/live_viewer_pyvista.py` (POSIX) |
 | GitHub Copilot CLI | `~/.copilot/agents/build123d.agent.md` |
 | GitHub Copilot CLI | `~/.copilot/profiles/build123d/instructions.md` |
 | GitHub Copilot CLI | `~/.copilot/profiles/build123d/skills/b123d-modeling/SKILL.md` |
 | GitHub Copilot CLI | `~/.copilot/profiles/build123d/skills/b123d-drawing/SKILL.md` |
+| GitHub Copilot CLI | `~/.copilot/profiles/build123d/viewer/live_viewer_pyvista.py` (POSIX) |
 
 The build123d profile resolves its workflow files from the installed `build123d-mcp`
-package during installation and configures the MCP server to launch with:
+package during installation. It installs the server from the `build123d-mcp` main
+branch (which provides the live session viewer) as a persistent `uv` tool and
+launches that installed executable directly:
 
 ```text
-uv tool run --python 3.12 build123d-mcp@latest
+uv tool install --force --python 3.12 git+https://github.com/pzfreo/build123d-mcp@main
 ```
+
+Launching the installed executable (rather than `uv tool run --from git+...`)
+avoids a ~1.5 s per-launch git re-resolution that raced MCP-host startup timeouts
+and intermittently dropped the server on session resume. Re-run the installer to
+update to a newer `main`.
+
+On POSIX hosts each server instance also binds a live-viewer socket at
+`/tmp/build123d-mcp.<pid>.sock`; open the rotatable 3D window with the
+`build123d-viewer` helper. See [profiles/build123d/](profiles/build123d/) for
+details.
 
 ### Launch Helpers
 
@@ -118,6 +132,7 @@ Installed helpers:
 |--------|---------|
 | `codex-build123d` | `codex --profile build123d` |
 | `copilot-build123d` | `copilot --agent build123d` |
+| `build123d-viewer` | open the live 3D viewer (Bash/POSIX only) |
 
 The PowerShell installer writes `~/.codex/powershell/agent-modes.ps1` and adds
 a marked source block to the current-user PowerShell profile. The Bash installer
