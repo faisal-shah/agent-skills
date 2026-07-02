@@ -134,6 +134,9 @@ For each verified or unverified claim, apply these challenges:
   claim boundaries.
 - Do not accept "the build passed" as visual correctness; inspect the rendered
   artifact when it is public, decision-critical, complex, or recently suspect.
+- For rendered figures/diagrams, run the Phase 3h reviewer loop on visual
+  legibility (clipping, label collisions, ambiguous endpoints, semantic
+  mismatch), not just semantic correctness — iterate with critics until legible.
 
 ### 3h. Independent Reviewer Loop
 - For high-stakes or large reviews, spawn scoped critics with the most capable

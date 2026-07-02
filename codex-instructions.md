@@ -6,6 +6,10 @@
 - **Defensive programming at boundaries only:** Validate external inputs and library boundaries. Internally within a module/library, assume strict contracts and well-defined interfaces. Do not add unnecessary fallback code, backwards compatibility layers, or defensive "just in case" logic for internal calls.
 - **Greenfield mindset:** This is production code under active development with no legacy constraints. Prefer clean refactors over patches. Bold architectural changes are welcome if they improve correctness, simplicity, or performance.
 
+## Writing & Communication
+
+- **No AI slop:** In responses, prose, docs, commit messages, and release notes, avoid emojis, marketing-speak, and filler/hedging (e.g. "two things worth knowing", "why you'll notice"). Be direct and state only what matters.
+
 ## Testing & Verification
 
 - **Always test before reporting completion:**
@@ -20,7 +24,9 @@
 
 - **Single source of truth:** Avoid duplicate independent sources for generated
   outputs. If two artifacts represent the same model/data, derive them from one
-  source or add manifest/count/semantic checks that prove they agree.
+  source or add manifest/count/semantic checks that prove they agree. Prefer one
+  canonical code path and reuse shared helpers rather than parallel
+  implementations of the same logic.
 - **Verify rendered/generated deliverables:** For important outputs, do not stop
   at "the build passed." Compare source data → generated file → rendered
   artifact → docs/prose, and inspect rendered figures/diagrams/reports when
@@ -28,6 +34,10 @@
 - **Validate CLI boundaries:** For scripts, exporters, and CLIs, validate user
   inputs at the parser/library boundary with clear errors for invalid ranges,
   paths, counts, modes, and incompatible options.
+- **Document exact usage, not leniency:** Exhort exact, correct inputs (e.g.
+  case-sensitive names spelled exactly). Treat input robustness such as
+  case-normalization as a silent safety net, not a contract — note it only in
+  maintainer docs (AGENTS.md), never advertise it in user/agent-facing docs.
 
 ## Tool Preferences
 
@@ -44,6 +54,7 @@
 ## Documentation & Commits
 
 - **Update docs alongside code:** CHANGELOG.rst, schema docs (*.rst), README/guides
+- **Current-state docs only:** README/AGENTS/guides describe how things work now — no historical or evolution wording ("used to", "previously", "now changed to"). History lives solely in the CHANGELOG.
 - **Git commits:** 50 char subject (imperative mood), 70 char wrapped body, senior engineer audience
 - **AGENTS.md:** Check repo roots for AI-specific context; create when appropriate for session handoff
 - **Use mermaid diagrams** for architecture, protocols, and state machines

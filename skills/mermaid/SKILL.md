@@ -38,7 +38,10 @@ but validating locally catches syntax/rendering failures before docs are updated
    `.md` and run `./tools/validate.sh target.md /tmp/target.validated.md`.
 4. For important/public diagrams, inspect the rendered SVG/PNG for clipping,
    wrapped labels, ambiguous endpoints, and semantic mismatch; syntax success is
-   not visual QA.
+   not visual QA. Do not rely on self-inspection alone: pass the rendered PNG to
+   independent sub-agent critics (prefer the agent's native sub-agent mechanism;
+   run several in parallel), address every concern, and re-render until the
+   diagram is judged legible.
 5. Keep rendered assets only when the deliverable needs images/PDFs/previews;
    otherwise prefer source Mermaid in Markdown for GitHub docs.
 
