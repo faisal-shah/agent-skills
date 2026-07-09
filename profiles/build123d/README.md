@@ -32,6 +32,13 @@ codex --profile build123d
 copilot --agent build123d
 ```
 
+On native Windows the generated config launches the server with `--in-process`:
+under the Codex and Copilot CLIs the worker subprocess never starts (the CLI's
+stdio pipes break the `multiprocessing` spawn handshake), so the CAD session runs
+in the server process instead. This trades the worker's crash containment and
+per-operation timeouts for a server that works. POSIX hosts keep the isolated
+worker and the live viewer.
+
 Optional launch helpers:
 
 | Helper | Command |

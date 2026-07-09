@@ -127,7 +127,16 @@ def _launch(exe: str, viewer: bool, viewer_dir: str) -> tuple[str, str]:
     server carries the resolved path in its argv, so the agent can report it and
     the human opens the viewer on it. ``BUILD123D_VIEWER_SOCKET`` overrides the
     path. Without the viewer the executable is launched directly.
+
+    On Windows the server is launched with ``--in-process``: under the Codex and
+    Copilot CLIs the worker subprocess never starts (the CLI's stdio pipes break
+    the ``multiprocessing`` spawn handshake), leaving every tool call to fail. In
+    that mode the CAD session runs in the server process, trading the worker's
+    crash containment and per-op timeouts for a server that actually works. POSIX
+    hosts keep the isolated worker (and the viewer, which is POSIX-only), so the
+    flag is emitted only when installing on Windows.
     """
+    in_process_args = ["--in-process"] if os.name == "nt" else []
     if viewer and viewer_supported():
         default_socket = (
             f"{(viewer_dir or DEFAULT_VIEWER_SOCKET_DIR).rstrip('/')}/{SERVER_NAME}.$$.sock"
@@ -137,7 +146,7 @@ def _launch(exe: str, viewer: bool, viewer_dir: str) -> tuple[str, str]:
             '"${BUILD123D_VIEWER_SOCKET:-' + default_socket + '}"'
         )
         return "sh", json.dumps(["-c", launch_line])
-    return exe, json.dumps([])
+    return exe, json.dumps(in_process_args)
 
 
 def _home_path(value: str | None, env_name: str, default_name: str) -> Path:
