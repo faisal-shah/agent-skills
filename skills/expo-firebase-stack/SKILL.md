@@ -168,8 +168,30 @@ grep -c 'require("<pkg>")' functions/lib/index.js   # must be 0
 ```
 
 ### Rules pass locally, queries fail in production
-The emulator does **not** enforce composite indexes. Probe every composite index
-against production before launch.
+The emulator enforces **no indexes at all**, so a query that passes every local
+test can fail the first time a real user runs it. Probe the real query shapes
+against production with the **Admin SDK** — it bypasses rules but *not* index
+requirements, so it tests exactly this without needing a signed-in user.
+
+Two traps hide here:
+
+**A bare collection-group `array-contains` needs a single-field index
+EXEMPTION, not a composite index.** Array fields are not indexed at
+collection-group scope by default. It goes in `fieldOverrides`, not `indexes`:
+
+```json
+{ "collectionGroup": "cards", "fieldPath": "assigneeUids",
+  "indexes": [{ "arrayConfig": "CONTAINS", "queryScope": "COLLECTION_GROUP" }] }
+```
+
+**"Deployed" is not "ready."** `firebase firestore:indexes` lists definitions but
+no build state, and an index still `CREATING` errors on use exactly like a
+missing one — ~4 minutes even on an empty database. Read the true state:
+
+```sh
+curl -s -H "Authorization: Bearer $(gcloud auth application-default print-access-token)" \
+  "https://firestore.googleapis.com/v1/projects/<project>/databases/(default)/collectionGroups/<coll>/fields/<field>"
+```
 
 ## Expo / Metro / builds
 
