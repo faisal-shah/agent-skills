@@ -229,6 +229,63 @@ teal. Build toggles from `Pressable` and views you control. Assume any RNW
 control wrapping a platform widget may not be themeable, and confirm with a
 screenshot rather than trusting the props.
 
+### A screen renders on web but is BLANK on device
+Header and buttons draw; the main content does not.
+
+A View with **no flex** between a `flex: 1` container and a `flex: 1` child sizes
+to its *content*, so the child collapses to zero height on native. Anything that
+sizes to its own content (a header row) still draws, which makes it look like
+one section is missing rather than the layout being broken.
+react-native-web resolves the same tree differently, so web looks fine
+throughout.
+
+Suspect any conditional style that can evaluate to `undefined`:
+
+```jsx
+<View style={capped ? styles.capped : undefined}>   // collapses on native
+<View style={[!scroll && styles.fill, capped ? styles.capped : null]}>  // fixed
+```
+
+**Never diagnose this from the web build.** The web/native divergence *is* the
+bug.
+
+### Android Back / edge-swipe exits the app instead of going back
+A hand-rolled navigation stack is invisible to Android, so the OS sees an
+activity with nothing to pop and leaves the app from any screen.
+
+```ts
+BackHandler.addEventListener('hardwareBackPress', () => {
+  if (stack.length > 1) { pop(); return true; }  // consume
+  return false;                                   // at root, let Android exit
+});
+```
+
+Returning `false` at the root is deliberate — exiting from the first screen is
+what people expect. `BackHandler` is a no-op shim on react-native-web, so it is
+safe to call unconditionally. Browser Back is a *separate* problem: a custom
+stack pushes no history entries.
+
+### The keyboard covers the field you are typing into
+`android:windowSoftInputMode="adjustResize"` is not enough under **edge-to-edge**
+(default on newer Android): the window no longer shrinks, so the keyboard
+overlays content. A field can stay visible while its submit button is sliced in
+half, with nothing left to scroll.
+
+Grow the scroll container's bottom padding by the keyboard height:
+
+```ts
+Keyboard.addListener('keyboardDidShow', (e) => setH(e.endCoordinates.height));
+Keyboard.addListener('keyboardDidHide', () => setH(0));
+// contentContainerStyle={[base, h > 0 && { paddingBottom: h + 24 }]}
+```
+
+`keyboardDidShow`, not `keyboardWillShow` — the Will events never fire on
+Android.
+
+And set **`keyboardShouldPersistTaps="handled"`**. Without it the first tap while
+the keyboard is up only dismisses the keyboard, so the button under your finger
+never fires and every submit appears to need two taps.
+
 ### There is no dropdown primitive in React Native
 Use a platform seam: `<select>` on web (keyboard nav, type-ahead and scrolling
 for free), a height-bounded modal list on native. Rendering one button per option
