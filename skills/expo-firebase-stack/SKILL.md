@@ -13,6 +13,10 @@ cause — that is why they cost time.
 and read it; query the database rather than the UI. "The code looks right" has
 been wrong often enough here that it is not evidence.
 
+Read **"How this stack fools you"** at the end before debugging anything
+subtle. Every entry below was found the slow way, and several were "fixed" wrongly
+first — the failure modes here are unusually good at imitating success.
+
 ## Sign-in
 
 ### Works in a browser, fails from a WhatsApp/Slack link
@@ -266,25 +270,37 @@ safe to call unconditionally. Browser Back is a *separate* problem: a custom
 stack pushes no history entries.
 
 ### The keyboard covers the field you are typing into
-`android:windowSoftInputMode="adjustResize"` is not enough under **edge-to-edge**
-(default on newer Android): the window no longer shrinks, so the keyboard
-overlays content. A field can stay visible while its submit button is sliced in
-half, with nothing left to scroll.
+Under **edge-to-edge** (`edgeToEdgeEnabled=true`, the default on newer Android)
+two things stop working at once, and neither announces itself:
 
-Grow the scroll container's bottom padding by the keyboard height:
+- `android:windowSoftInputMode="adjustResize"` no longer shrinks the window, so
+  the keyboard **overlays** content;
+- React Native's own `Keyboard` events **do not fire at all**.
 
-```ts
-Keyboard.addListener('keyboardDidShow', (e) => setH(e.endCoordinates.height));
-Keyboard.addListener('keyboardDidHide', () => setH(0));
-// contentContainerStyle={[base, h > 0 && { paddingBottom: h + 24 }]}
+That second one is the trap. The obvious fix — listen for `keyboardDidShow` and
+add bottom padding — compiles, runs, throws nothing, and does **nothing**,
+because the listener never fires. It looks like a fix and is inert.
+
+Use **`react-native-keyboard-controller`**, which tracks the IME through
+WindowInsets — the only mechanism that survives edge-to-edge:
+
+```tsx
+<KeyboardProvider>            {/* must wrap the app */}
+  <KeyboardAwareScrollView keyboardShouldPersistTaps="handled" bottomOffset={96}>
 ```
 
-`keyboardDidShow`, not `keyboardWillShow` — the Will events never fire on
-Android.
+It is native-only with **no web implementation**, so put it behind a platform
+seam and let web use a plain ScrollView — browsers already scroll a focused
+input into view. Verify the native library does not reach the web bundle.
 
-And set **`keyboardShouldPersistTaps="handled"`**. Without it the first tap while
-the keyboard is up only dismisses the keyboard, so the button under your finger
-never fires and every submit appears to need two taps.
+Also set **`keyboardShouldPersistTaps="handled"`** regardless. Without it the
+first tap while the keyboard is up only dismisses the keyboard, so the button
+under your finger never fires and every submit appears to need two taps.
+
+**Known remaining gap:** `bottomOffset` clears the *focused field*, not the
+submit button beneath it. On an emulator that button can stay behind the
+keyboard even with a generous offset. Emulator IME inset behaviour diverges from
+real hardware — confirm on a device before concluding either way.
 
 ### There is no dropdown primitive in React Native
 Use a platform seam: `<select>` on web (keyboard nav, type-ahead and scrolling
@@ -360,3 +376,60 @@ in WhatsApp. It works on their laptop.
 
 Two independent causes hide behind one user-visible symptom. Fixing only the one
 you reproduced leaves a bug that resurfaces as "it still doesn't work sometimes".
+
+---
+
+## How this stack fools you
+
+Meta-lessons, each paid for by a confident wrong answer. The entries above are
+facts; these are the habits that stop you generating new bugs of the same shape.
+
+### Silent no-ops: code that runs, throws nothing, and does nothing
+This stack is full of APIs that are *present* but inert in your configuration:
+
+- `Keyboard` events under edge-to-edge — never fire
+- `Switch`'s `thumbColor`/`trackColor` on react-native-web — ignored
+- an empty value in `.secret.local` — not treated as an override
+- a bundled workspace package left in `dependencies` — installed anyway
+
+None of these error. **When a fix produces no visible change, first ask whether
+the mechanism ran at all** — before concluding the fix was insufficient and
+piling a second change on top. Prove the input reached your code (log the value,
+assert it is non-zero) rather than inferring it from the output.
+
+### Your own interaction can counterfeit the fix
+A keyboard fix looked like it worked because the verification swipe scrolled the
+button into view. The screenshot was real; the causal story was invented.
+
+**Re-test without touching anything.** If confirming a fix requires you to
+scroll, tap, or retry, you cannot attribute the result to the fix. Change one
+thing, observe passively, and compare against a before-image captured the same
+way.
+
+### Web is not evidence about native, and an emulator is not a device
+`react-native-web` resolves flexbox trees differently, so a screen that renders
+perfectly in a browser can be blank on a phone. An emulator misreports IME
+insets, so keyboard behaviour differs from real hardware.
+
+**Reproduce on the surface that is broken.** A green web suite says nothing about
+a native layout bug — the divergence *is* the bug.
+
+### Read the reference implementation before designing a fix
+A sibling project had already solved the keyboard problem with a native library,
+had the dependency pinned, and carried a comment explaining exactly why the
+obvious approach fails. Two failed deploys and one bogus fix came from designing
+first and checking second. **If a working implementation of the same stack
+exists, read its config and comments before writing anything.**
+
+### "Deployed" is not "working"
+Firestore indexes report definitions with no build state; a `CREATING` index
+errors exactly like a missing one. Functions can be *created* while their Cloud
+Run service is not. **Probe the behaviour** — run the query, invoke the callable
+— rather than trusting a success message or a resource listing.
+
+### Say what you did not verify
+Several bugs here were reported fixed on the strength of a plausible mechanism.
+The cost is not the wrong fix; it is that the next person trusts it. When the
+architecture is right but the symptom is unconfirmed, **write that down** — in
+the commit message, in the notes, to the user. An honest known-gap is cheaper
+than a false all-clear.
