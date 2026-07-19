@@ -91,6 +91,37 @@ explicitly-listed test users can sign in at all.
 Either way, enforce any domain restriction **server-side**. The client `hd`
 parameter is UX; it is trivially bypassed.
 
+### No admin exists yet, and only an admin can promote anyone
+The bootstrap deadlock after a first deploy. The usual answer — an Admin SDK
+script — needs gcloud ADC or a service-account key, which a CI box or a fresh
+laptop often does not have.
+
+Ship a **temporary one-shot HTTP function: deploy, call once, delete.** Make it
+safe by construction rather than by secrecy:
+
+- it can only ever promote **one hardcoded address**, so whoever calls it the
+  outcome is identical and there is nothing to gain by racing;
+- it **refuses once any admin exists**, so it cannot be replayed after someone
+  is demoted;
+- it re-checks the domain/verified-email rule.
+
+Those three together mean it needs no auth and no shared secret — and a secret
+would be worse, since it would have to be transmitted somewhere.
+
+```ts
+const admins = await db.collection('users').where('role', '==', 'admin').get();
+if (admins.docs.some((d) => d.data().status === 'active')) {
+  res.status(409).json({ ok: false, reason: 'Admin exists; this is spent.' });
+  return;
+}
+// set custom claims FIRST (rules trust the token), then the display mirror
+```
+
+Set **claims before the mirror document**: rules trust the token, so a failure
+in between leaves a working admin rather than a document claiming access the
+token does not grant. Delete the function immediately afterwards — and have it
+say so in its own success response, so the cleanup step is hard to forget.
+
 ### Reject by deleting, not by marking
 An auth-create trigger that rejects an out-of-domain account should `deleteUser`
 it. Writing `status: 'rejected'` leaves junk that is indistinguishable from real
