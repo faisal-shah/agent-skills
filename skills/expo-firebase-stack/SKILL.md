@@ -118,6 +118,24 @@ web.
 override**, so the 403 may persist — document it, or people learn to ignore
 emulator errors.
 
+### Cloud Build: `404 <pkg> is not in this registry` for your own workspace package
+Functions deploy uploads only the functions directory, so a private workspace
+package cannot be resolved up there. Bundle it (esbuild `bundle: true`) **and
+remove it from `functions/package.json` entirely.**
+
+`devDependencies` is *not* sufficient — the Cloud Functions Node buildpack
+installs those too. The declaration has to be gone.
+
+It still resolves locally: npm workspaces symlinks every workspace package into
+the root `node_modules` regardless of who declares it, so the bundler finds it
+at build time with no declaration at all.
+
+Verify the bundle is self-contained instead of assuming:
+
+```sh
+grep -c 'require("<pkg>")' functions/lib/index.js   # must be 0
+```
+
 ### Rules pass locally, queries fail in production
 The emulator does **not** enforce composite indexes. Probe every composite index
 against production before launch.
