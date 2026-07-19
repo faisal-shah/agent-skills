@@ -48,9 +48,9 @@ function Show-Usage {
     Write-Output "  -InstallPowerShellAliases    Install codex-build123d and copilot-build123d helpers"
     Write-Output "  -SmokeTestBuild123d          Run build123d-mcp --version through uv"
     Write-Output ""
-    Write-Output "Installs skills: circuit-sim, commit, elmer-fem, mermaid, memory,"
-    Write-Output "                 netlist-to-schematic, playwright-cli, robust-doc,"
-    Write-Output "                 shellcheck, technical-report, uv"
+    Write-Output "Installs skills: circuit-sim, commit, elmer-fem, expo-firebase-stack,"
+    Write-Output "                 mermaid, memory, netlist-to-schematic, playwright-cli,"
+    Write-Output "                 robust-doc, shellcheck, technical-report, uv"
     Write-Output "Installs profile: build123d"
     exit 1
 }

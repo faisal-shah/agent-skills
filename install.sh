@@ -16,9 +16,9 @@ usage() {
     echo "  --install-shell-aliases   Install codex-build123d and copilot-build123d helpers into ~/.bashrc"
     echo "  --smoke-test-build123d    Run build123d-mcp --version through uv"
     echo ""
-    echo "Installs skills: circuit-sim, commit, elmer-fem, mermaid, memory,"
-    echo "                 netlist-to-schematic, playwright-cli, robust-doc,"
-    echo "                 shellcheck, technical-report, uv"
+    echo "Installs skills: circuit-sim, commit, elmer-fem, expo-firebase-stack,"
+    echo "                 mermaid, memory, netlist-to-schematic, playwright-cli,"
+    echo "                 robust-doc, shellcheck, technical-report, uv"
     echo "Installs profile: build123d"
     exit 1
 }

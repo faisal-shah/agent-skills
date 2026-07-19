@@ -11,6 +11,7 @@ Elmer FEM setup, schematic drawing, and persistent memory across sessions.
 | [circuit-sim](skills/circuit-sim/) | Drive ngspice for AC/DC/transient simulation, parse rawfiles, plot waveforms | ngspice, Python 3.10+, numpy, matplotlib |
 | [commit](skills/commit/) | Consistent Conventional Commits-style git commit messages | Git |
 | [elmer-fem](skills/elmer-fem/) | Set up, run, and debug Elmer FEM workflows: mesh conversion, SIF authoring, circuit-coupled conductor impedance extraction (R, L), parametric frequency sweeps, Massive/Stranded coil types, and ParaView post-processing. Includes a complete script template and validated reference results. | ElmerSolver, ElmerGrid, Gmsh or Salome, elmer-circuitbuilder; ParaView *(optional)* |
+| [expo-firebase-stack](skills/expo-firebase-stack/) | Diagnose recurring traps in Expo + react-native-web + Firebase apps: sign-in failing only in chat-app webviews, Android `DEVELOPER_ERROR`, emulator project-id partitioning, stale Metro bundles, unthemeable RNW controls, live-query races | Expo project, Firebase CLI; `keytool` *(optional)* |
 | [mermaid](skills/mermaid/) | Create and validate Mermaid diagrams with the official Mermaid CLI | Node.js + npm |
 | [memory](skills/memory/) | Bootstrap persistent memory files that survive compactions and session restarts | None |
 | [netlist-to-schematic](skills/netlist-to-schematic/) | Convert SPICE netlists into publication-quality Circuitikz schematic diagrams | pdflatex, pdftoppm, Python 3.10+ |
@@ -217,6 +218,12 @@ agent-skills/
     │   ├── install.sh
     │   └── install.ps1
     ├── elmer-fem/          ← general Elmer FEM workflow skill
+    │   ├── SKILL.md
+    │   ├── AGENTS.md
+    │   ├── README.md
+    │   ├── install.sh
+    │   └── install.ps1
+    ├── expo-firebase-stack/ ← Expo + react-native-web + Firebase gotchas skill
     │   ├── SKILL.md
     │   ├── AGENTS.md
     │   ├── README.md
