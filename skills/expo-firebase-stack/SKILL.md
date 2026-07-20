@@ -1,6 +1,6 @@
 ---
 name: expo-firebase-stack
-description: Diagnose and avoid the recurring traps in Expo + react-native-web + Firebase JS SDK apps — Google sign-in failing only inside chat-app browsers, DEVELOPER_ERROR on Android, emulator data that "does not exist", stale Metro bundles, unthemeable react-native-web controls, and live-query races that make seeds and tests silently do nothing. Use when building, debugging, or deploying an Expo app that shares one codebase across Android and web via react-native-web with Firebase for auth/Firestore/Functions.
+description: Diagnose and avoid the recurring traps in Expo + react-native-web + Firebase JS SDK apps — Google sign-in failing only inside chat-app browsers, DEVELOPER_ERROR on Android, emulator data that "does not exist", stale Metro bundles, unthemeable react-native-web controls, push notifications that deliver nothing while every visible part works, and live-query races that make seeds and tests silently do nothing. Use when building, debugging, or deploying an Expo app that shares one codebase across Android and web via react-native-web with Firebase for auth/Firestore/Functions.
 ---
 
 # Expo + react-native-web + Firebase: the traps
@@ -393,6 +393,108 @@ locally, so the item appears on its own. Restore the text if the write actually
 fails — losing what someone typed is worse than a moment of uncertainty. Disable
 while in flight so repeated taps cannot post duplicates.
 
+## Push notifications (FCM)
+
+### Nothing is delivered; the functions log success and no error appears anywhere
+The classic shape here: the **send path is complete and the registration path
+was never written**. The server reads each recipient's device tokens, finds an
+empty list, and returns early — which is a success, not an error. The in-app
+inbox, per-event preferences and mute controls all work, so the feature looks
+finished from the outside, including to whoever builds the next thing on top.
+
+**Verify the token exists before debugging delivery.** Read a real user document
+in the console. If there are no tokens, nothing downstream matters.
+
+### Registered a token, still nothing: Expo token vs device token
+`getExpoPushTokenAsync()` returns an `ExponentPushToken[…]` that only Expo's push
+service can deliver to. The **Firebase Admin SDK** (`getMessaging().send*`) needs
+the native FCM token from `getDevicePushTokenAsync()`. Both "work", both store a
+plausible string, and the mismatch surfaces only as silence.
+
+Pick one delivery path and make the client and server agree on it.
+
+### Bare workflow: `googleServicesFile` in `app.json` does nothing
+`app.json` android config is consumed by **prebuild**. With a committed
+`android/` directory nobody runs prebuild, so the setting is decoration. FCM then
+has no project to register against and token requests fail or return nothing.
+
+Three things must physically exist in the repo:
+
+```
+android/app/google-services.json                         # the file itself
+android/build.gradle:      classpath 'com.google.gms:google-services:x.y.z'
+android/app/build.gradle:  apply plugin: 'com.google.gms.google-services'
+```
+
+Confirm the build actually consumed it — the plugin generates resources, so
+their absence is proof:
+
+```bash
+ls android/app/build/generated/res/processReleaseGoogleServices/values/values.xml
+```
+
+Keep `googleServicesFile` in `app.json` anyway, so a future prebuild agrees with
+the committed files instead of silently diverging.
+
+### Store tokens as a subcollection, never an array field
+`users/{uid}/pushTokens/{token}` — the token is the document id.
+
+An array field makes two devices registering at once a read-modify-write race,
+and to let someone manage their own tokens you have to allow writes to a field
+on their user document, which sits next to fields rules must protect. A document
+per token cannot collide, deduplicates by construction, and is scoped by a rule
+that grants nothing else:
+
+```
+match /users/{userId}/pushTokens/{token} {
+  allow read, write: if isSignedIn() && request.auth.uid == userId;
+}
+```
+
+`isSignedIn`, not `isActive`: **registration happens at sign-in, before an
+approval workflow has approved anyone.** Gate the *send*, not the registration —
+holding a token grants nothing on its own.
+
+Nobody else may read the collection either, admins included: which devices a
+person carries is not administrative data.
+
+### Unregister on sign-out
+A push targets the **device**, not the session. Skip this and a shared or
+handed-on phone keeps receiving the previous account's notifications — a
+disclosure, not an annoyance. Capture the uid *before* clearing session state;
+the unregister needs to know whose token to remove.
+
+### Tokens accumulate forever unless you prune them
+Sign-out removes a token. An uninstall, a data wipe, or a factory reset does not
+— that token stays until something deletes it, and every later send to that
+person carries a growing tail that can only fail.
+
+Delete on the response, and only on the two codes that actually mean *gone*:
+
+```ts
+const dead = res.responses.flatMap((r, i) =>
+  r.error?.code === 'messaging/registration-token-not-registered' ||
+  r.error?.code === 'messaging/invalid-registration-token' ? [refs[i]] : []);
+```
+
+Quota, unavailable, and internal errors are transient — pruning on those
+unregisters working devices.
+
+### Web push needs two extra things and is inert without either
+A **VAPID key** (Firebase console → Cloud Messaging → Web Push certificates) and
+a service worker at `/firebase-messaging-sw.js`. A browser cannot be woken
+without one.
+
+Make the absence of the key an explicit early return rather than something that
+throws mid sign-in. Half-configured web push should do nothing, visibly by
+design, while native keeps working.
+
+### What you cannot verify yourself
+No emulator delivers a push. FCM has no emulator, and an Android emulator without
+Play services will not receive one. Registration, rules and pruning are all
+testable; **arrival is not**. Say so explicitly rather than reporting the feature
+as done.
+
 ## Testing and seeding
 
 ### A seed or test silently did nothing, repeatedly
@@ -404,6 +506,22 @@ gets the empty state, so an "already exists?" guard says no and creates another.
 
 Wait for the list to *render* before deciding something is absent, and verify
 against the database directly rather than the UI.
+
+### A test fails intermittently on a race it created itself
+Waiting for condition A and then asserting on condition B in the same tick. A
+trigger that deletes an auth user may still have a document write in flight; the
+auth record is gone, the assertion runs, and the doc exists for a few more
+milliseconds.
+
+The assertion is about what **survives**, not about a moment — so poll for it:
+
+```ts
+await waitUntilGone('no user doc to remain', async () =>
+  (await adminDb().doc(`users/${uid}`).get()).exists);
+```
+
+Re-run a suspected flake several times before and after the change. One green run
+does not distinguish a fix from luck.
 
 ### Confirmation dialogs silently do nothing under Playwright
 Playwright **auto-dismisses** `window.confirm`. Register the handler, and assert
@@ -448,11 +566,22 @@ This stack is full of APIs that are *present* but inert in your configuration:
 - `Switch`'s `thumbColor`/`trackColor` on react-native-web — ignored
 - an empty value in `.secret.local` — not treated as an override
 - a bundled workspace package left in `dependencies` — installed anyway
+- `app.json` native config in a bare workflow — never read without prebuild
+- a push send to an empty token list — returns success
 
 None of these error. **When a fix produces no visible change, first ask whether
 the mechanism ran at all** — before concluding the fix was insufficient and
 piling a second change on top. Prove the input reached your code (log the value,
 assert it is non-zero) rather than inferring it from the output.
+
+### A feature can be complete except for its last link, and look finished
+Push had a send path, an inbox, preferences, mute controls, and rules — and no
+device ever registered a token. Every visible part worked. Nothing errored.
+
+**For any end-to-end feature, name the links and check each one has code that
+runs**, from the trigger to the thing a person actually sees. The link most
+likely to be missing is the least visible one, and the parts that do work are
+what stop anyone from asking.
 
 ### Your own interaction can counterfeit the fix
 A keyboard fix looked like it worked because the verification swipe scrolled the
