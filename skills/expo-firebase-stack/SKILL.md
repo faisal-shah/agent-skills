@@ -336,6 +336,40 @@ drown in users mistyping things.
 It correlates with your users collection — all triage needs — without putting
 user addresses into a third-party service.
 
+### "It flashes" / "something isn't drawn" when navigating
+Users describe this as a rendering glitch. It usually is not: a live-data hook
+that resets to `loading` on mount replaces the WHOLE screen with a spinner every
+time you navigate — including the parts that did not change — then repopulates.
+
+**Measure it before theorising.** Record the device and sample frames, then sort
+by file size: a near-blank frame compresses to a fraction of a populated one.
+
+```sh
+adb shell screenrecord --time-limit 8 /sdcard/nav.mp4
+adb pull /sdcard/nav.mp4 && ffmpeg -i nav.mp4 -vf fps=20 f_%03d.png
+ls -lS f_*.png | tail          # smallest = blank; count them for the duration
+```
+
+Twenty consecutive frames at a quarter the normal size is a full second of blank
+screen — not a transition problem, and no animation will fix it.
+
+**Fix:** cache the last result per subscription and seed state from it on mount,
+so returning to a screen you were just on renders immediately. Key the cache by
+the query IDENTITY (label + the deps that define it) so a *different* query still
+resets to loading — otherwise you reintroduce the far worse bug of showing one
+query's data under another's heading. Evict on error so a failed listen cannot
+be resurrected by a later mount.
+
+### A submit button "does nothing" for seconds, so users tap it repeatedly
+Firestore's `addDoc`/`updateDoc` promises resolve on **server acknowledgement**,
+which can take many seconds on a phone. If the UI waits for that before clearing
+the field or showing progress, the button looks dead.
+
+Clear the input immediately and show a busy state; Firestore applies the write
+locally, so the item appears on its own. Restore the text if the write actually
+fails — losing what someone typed is worse than a moment of uncertainty. Disable
+while in flight so repeated taps cannot post duplicates.
+
 ## Testing and seeding
 
 ### A seed or test silently did nothing, repeatedly
