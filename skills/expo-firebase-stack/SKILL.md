@@ -480,6 +480,25 @@ const dead = res.responses.flatMap((r, i) =>
 Quota, unavailable, and internal errors are transient — pruning on those
 unregisters working devices.
 
+### A new `EXPO_PUBLIC_*` value never reaches the bundle
+`EXPO_PUBLIC_*` is **inlined at build time and cached**. A module compiled before
+the variable existed keeps the stale inlined value — normally `undefined` —
+across repeated clean exports, because `dist/` is the output and not the cache.
+The feature then behaves exactly as it does with no value configured, while the
+code reading it is correct.
+
+`expo export --clear`, and delete `.expo`.
+
+Verify by grepping the export for the literal value, not by trusting the build:
+
+```bash
+grep -rc "<the value>" dist/_expo/static/js/web/*.js   # 0 means it never arrived
+```
+
+If a *different* `EXPO_PUBLIC_` var is present in the same bundle, env loading
+works and the cache is the culprit. This is the stale-bundle trap wearing
+different clothes — see "A UI change appears to have no effect".
+
 ### Web push needs two extra things and is inert without either
 A **VAPID key** (Firebase console → Cloud Messaging → Web Push certificates) and
 a service worker at `/firebase-messaging-sw.js`. A browser cannot be woken
