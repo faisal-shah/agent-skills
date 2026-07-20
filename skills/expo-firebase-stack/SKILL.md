@@ -332,6 +332,29 @@ The instance can freeze the moment the handler resolves. `await Sentry.flush(...
 before returning. Exclude expected domain errors (`HttpsError`) or real defects
 drown in users mistyping things.
 
+### Expected user actions must not be reported as errors
+Closing a Google sign-in popup raises `auth/popup-closed-by-user`. If the screen
+catches it and the catch reports, "someone changed their mind" arrives in the
+issue stream looking like a defect.
+
+Swallow the cancellations on web — they are not failures:
+
+```ts
+if (code === 'auth/popup-closed-by-user' ||
+    code === 'auth/cancelled-popup-request' ||
+    code === 'auth/user-cancelled') return;
+```
+
+The native Google Sign-In SDK has always had the equivalent
+(`SIGN_IN_CANCELLED`, `IN_PROGRESS`), so the two seams drift apart unless you
+check both. Same principle as excluding `HttpsError` server-side: an expected
+domain outcome is not a defect.
+
+**This matters more once reporting actually works.** An issue stream full of
+benign events is one nobody reads, and then the real report arrives and gets
+scrolled past — the same failure mode as a flaky test suite teaching everyone to
+re-run it.
+
 ### Send the uid, not the email
 It correlates with your users collection — all triage needs — without putting
 user addresses into a third-party service.
