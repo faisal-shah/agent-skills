@@ -147,6 +147,53 @@ The WebChannel stream dies silently under RN networking. Use
 `experimentalForceLongPolling` on native, `experimentalAutoDetectLongPolling` on
 web.
 
+### A callable returns "internal", and the browser blames CORS
+Three symptoms, one cause. The functions emulator **accepts connections on its
+port before it has registered any function**. Until registration finishes, every
+call 404s with `Function <name> does not exist`. A 404 carries no CORS headers,
+so the browser reports *"blocked by CORS policy"*, and a Firebase callable
+surfaces the whole thing to the UI as a bare `internal`.
+
+Nothing points at the real cause: the app looks broken, the CORS message
+suggests a config problem, and the emulator log says every function initialised
+(it did — just later than the first call).
+
+Waiting for the port is not waiting for readiness. Wait for a **known callable
+to exist**:
+
+```js
+// 404 → not registered yet. Anything else → ready.
+const res = await fetch(`http://127.0.0.1:5001/${projectId}/${region}/${knownFn}`,
+                        { method: 'OPTIONS' });
+if (res.status !== 404) ready = true;
+```
+
+The same symptom appears with a **leftover emulator from a killed run**: it holds
+the port with nothing registered, so a fresh run talks to a half-dead process. If
+a failure reproduces on stashed changes, it is environmental — check the ports
+before reading your diff.
+
+Free them **by port**, never `pkill -f firebase`: that pattern also matches the
+killing script's own command line and the shell that spawned it.
+
+```sh
+ss -lptn "sport = :5001" | grep -oP 'pid=\K[0-9]+'
+```
+
+### Emulator hosts: use `127.0.0.1`, never `localhost`
+The emulators bind IPv4 only, while `localhost` can resolve to IPv6 `::1` first.
+The connection then fails before any response exists — which the browser again
+reports as a CORS error, because there are no headers on a request that never
+completed. Put the literal `127.0.0.1` in client config; keep `10.0.2.2` for the
+Android emulator reaching the host.
+
+### First deploy of a Firestore-trigger function: Eventarc permission denied
+`Validation failed ... Permission denied while using the Eventarc Service Agent`
+on the *first* trigger deploy in a project. The deploy enables Eventarc, but the
+service agent's permissions take minutes to propagate. It is not a config error
+and changing the config makes it worse. Wait 2–5 minutes and redeploy only the
+failed functions.
+
 ### Secret Manager 403 for every bound secret
 `secrets: [...]` makes the emulator reach for real Secret Manager. Override in
 `functions/.secret.local` (gitignored). An **empty value is not treated as an
@@ -513,6 +560,53 @@ No emulator delivers a push. FCM has no emulator, and an Android emulator withou
 Play services will not receive one. Registration, rules and pruning are all
 testable; **arrival is not**. Say so explicitly rather than reporting the feature
 as done.
+
+## Dead-code and dependency audits
+
+### Every platform seam reads as dead code
+A dead-code tool (knip, ts-prune, depcheck) resolves imports. It does not know
+that the **bundler** picks `foo.web.ts` over `foo.ts` by filename, so every
+`.web.ts(x)` in the project is reported as an unused file, and anything only
+those files import is reported as an unused export or dependency.
+
+Three failure modes, all of which look like real findings:
+
+1. **Seam files are unused.** Add every `*.web.ts(x)` as an entry point, plus
+   anything else the bundler or a runtime loads by convention rather than by
+   import: `babel.config.js`, `metro.config.js`, a service worker under
+   `public/`, CLI scripts.
+2. **An export used only from a seam looks unused.** Grep across `.ts` *and*
+   `.tsx` and typecheck before deleting. Deleting on the strength of a
+   report-plus-hasty-grep is how a live export gets removed.
+3. **"Unused dependency" is not "removable".** Packages consumed by something
+   other than an import will always look unused: a babel plugin, a peer
+   dependency of a library you do use, the browser driver behind an e2e script,
+   the web build of an SDK used only in a seam file. Check *why* it is there
+   before removing it.
+
+Two more shapes worth knowing:
+
+- **A workspace package deliberately absent from `functions/package.json`**
+  (because the bundler inlines it — see the Cloud Build entry) is reported as an
+  *unlisted* dependency forever. Suppress it explicitly, or someone will
+  helpfully re-add the declaration and break the deploy.
+- **Exported types used only inside their own file** are usually not cruft: they
+  name the parameter or return of an exported function, i.e. they document a
+  public surface. Un-exporting them is churn, not cleanup.
+
+Finally, a judgement no tool makes: **some unused code marks a missing feature
+rather than dead weight.** If deleting it would erase the only trace of a
+user-facing gap, fix the gap instead.
+
+### Grep can silently skip a source file
+A single control byte — a raw NUL used as a separator inside a template literal,
+say — makes `file` call the source "data" and git diff it as binary. **grep then
+skips the whole file and reports no matches**, which during an audit reads as
+"nothing uses this".
+
+A verification tool that returns "no matches" for a file it cannot read is worse
+than no tool at all. Write control characters as escapes (`\u0000`): identical
+runtime value, readable source. Worth a CI guard, since nothing else complains.
 
 ## Testing and seeding
 
