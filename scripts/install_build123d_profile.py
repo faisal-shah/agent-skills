@@ -5,7 +5,7 @@
 #   "build123d-mcp @ git+https://github.com/pzfreo/build123d-mcp@main",
 # ]
 # ///
-"""Install build123d-mcp profile files for Codex and Copilot."""
+"""Install build123d-mcp profile files for Codex, Copilot, and Claude Code."""
 
 from __future__ import annotations
 
@@ -320,13 +320,104 @@ Do not create MCP configuration files, agent instruction files, or editor config
 {_viewer_instructions(viewer)}"""
 
 
-def _install_skill_files(target_root: Path) -> list[str]:
+def _claude_manifest(viewer: bool) -> str:
+    """Plugin manifest. Component dirs (skills/, agents/) and .mcp.json are
+    auto-discovered, so only identity belongs here."""
+    manifest = {
+        "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+        "name": PROFILE_NAME,
+        "version": "0.1.0",
+        "description": MODE_DESCRIPTION,
+        "author": {
+            "name": "faisal-shah",
+            "url": "https://github.com/faisal-shah/agent-skills",
+        },
+    }
+    return json.dumps(manifest, indent=2) + "\n"
+
+
+def _claude_skill_frontmatter(skill_dir: str, content: str) -> str:
+    """Prepend Claude Code skill frontmatter to an upstream SKILL.md.
+
+    Codex and Copilot reference these files by absolute path, so upstream ships
+    them without frontmatter. Claude Code discovers skills by ``description``, and
+    without one the skill loads but is never selected. Both files open with an H1
+    and a "Use this skill when ..." paragraph, so the metadata is *derived* rather
+    than invented — it keeps tracking upstream if the wording changes.
+    """
+    if content.startswith("---"):
+        return content
+
+    title = ""
+    summary = ""
+    lines = content.splitlines()
+    for index, line in enumerate(lines):
+        if line.startswith("# "):
+            title = line[2:].strip()
+            paragraph: list[str] = []
+            for following in lines[index + 1:]:
+                if following.strip():
+                    paragraph.append(following.strip())
+                elif paragraph:
+                    break
+            summary = " ".join(paragraph)
+            break
+
+    description = summary or title or f"build123d workflow: {skill_dir}"
+    if title and summary:
+        description = f"{title}. {summary}"
+    # JSON-encoded so em dashes, colons and quotes in upstream prose cannot break
+    # the YAML block.
+    return (
+        "---\n"
+        f"name: {skill_dir}\n"
+        f"description: {json.dumps(description)}\n"
+        "---\n\n"
+        f"{content}"
+    )
+
+
+def _claude_mcp_config(exe: str, viewer: bool, viewer_dir: str) -> str:
+    command, args_literal = _launch(exe, viewer, viewer_dir)
+    config = {
+        "mcpServers": {
+            SERVER_NAME: {
+                "command": command,
+                "args": json.loads(args_literal),
+            }
+        }
+    }
+    return json.dumps(config, indent=2) + "\n"
+
+
+def _claude_agent(claude_home: Path, viewer: bool) -> str:
+    """The subagent carrying the profile instructions.
+
+    ``tools`` is omitted so the subagent inherits every tool, matching the
+    ``tools: ["*"]`` the Copilot agent declares. ``model: opus`` is the analogue
+    of Codex's ``model_reasoning_effort = "xhigh"``: CAD work is the reasoning-
+    heavy case this profile exists for.
+    """
+    skill_root = claude_home / "profiles" / PROFILE_NAME / "skills"
+    body = _profile_instructions(skill_root, viewer)
+    return f"""---
+name: {PROFILE_NAME}
+description: {MODE_DESCRIPTION}
+model: opus
+---
+
+{body}"""
+
+
+def _install_skill_files(target_root: Path, frontmatter: bool = False) -> list[str]:
     messages: list[str] = []
     skills = {
         "b123d-modeling": _read_package_skill("b123d-modeling"),
         "b123d-drawing": _read_package_skill("b123d-drawing"),
     }
     for skill_dir, content in skills.items():
+        if frontmatter:
+            content = _claude_skill_frontmatter(skill_dir, content)
         messages.append(_write_text(target_root / skill_dir / "SKILL.md", content))
     return messages
 
@@ -361,6 +452,27 @@ def install_copilot(copilot_home: Path, exe: str, viewer: bool, viewer_dir: str)
     return messages
 
 
+def install_claude(claude_home: Path, exe: str, viewer: bool, viewer_dir: str) -> list[str]:
+    """Install the profile as a Claude Code plugin directory.
+
+    Deliberately written to ``~/.claude/profiles/build123d`` rather than
+    ``~/.claude/skills`` or ``~/.claude/plugins``: anything under those loads in
+    **every** session, whereas a Codex/Copilot profile is inert until selected.
+    Engaged per launch with ``claude --plugin-dir <dir> --agent build123d`` (see
+    the ``claude-build123d`` shell helper).
+    """
+    messages: list[str] = []
+    profile_root = claude_home / "profiles" / PROFILE_NAME
+    skill_root = profile_root / "skills"
+    messages.extend(_install_skill_files(skill_root, frontmatter=True))
+    messages.append(_write_text(profile_root / ".claude-plugin" / "plugin.json", _claude_manifest(viewer)))
+    messages.append(_write_text(profile_root / ".mcp.json", _claude_mcp_config(exe, viewer, viewer_dir)))
+    messages.append(_write_text(profile_root / "agents" / f"{PROFILE_NAME}.md", _claude_agent(claude_home, viewer)))
+    if viewer:
+        messages.extend(_install_viewer_files(profile_root))
+    return messages
+
+
 def uninstall_codex(codex_home: Path) -> list[str]:
     profile_root = codex_home / "profiles" / PROFILE_NAME
     messages = [
@@ -382,12 +494,46 @@ def uninstall_copilot(copilot_home: Path) -> list[str]:
     return messages
 
 
+def uninstall_claude(claude_home: Path) -> list[str]:
+    profile_root = claude_home / "profiles" / PROFILE_NAME
+    messages = [_remove_path(profile_root)]
+    _remove_empty(claude_home / "profiles")
+    return messages
+
+
+TARGETS = ("codex", "copilot", "claude")
+
+
+def _parse_targets(value: str) -> set[str]:
+    """Parse ``--target``: ``all`` or a comma-separated subset.
+
+    A list rather than a single choice because there are now three targets, and
+    picking two of them must not silently mean all three.
+    """
+    if value == "all":
+        return set(TARGETS)
+    requested = {part.strip() for part in value.split(",") if part.strip()}
+    unknown = requested - set(TARGETS)
+    if unknown or not requested:
+        raise argparse.ArgumentTypeError(
+            f"invalid target(s): {', '.join(sorted(unknown)) or '(empty)'}; "
+            f"choose 'all' or a comma-separated subset of {', '.join(TARGETS)}"
+        )
+    return requested
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--target", choices=("all", "codex", "copilot"), default="all")
+    parser.add_argument(
+        "--target",
+        type=_parse_targets,
+        default="all",
+        help="'all', or a comma-separated subset of: codex, copilot, claude",
+    )
     parser.add_argument("--uninstall", action="store_true")
     parser.add_argument("--codex-home")
     parser.add_argument("--copilot-home")
+    parser.add_argument("--claude-home")
     parser.add_argument("--mcp-python", default="3.12")
     parser.add_argument(
         "--no-viewer",
@@ -406,15 +552,19 @@ def main(argv: list[str]) -> int:
     args = parse_args(argv)
     codex_home = _home_path(args.codex_home, "CODEX_HOME", ".codex")
     copilot_home = _home_path(args.copilot_home, "COPILOT_HOME", ".copilot")
+    claude_home = _home_path(args.claude_home, "CLAUDE_CONFIG_DIR", ".claude")
     viewer = (not args.no_viewer) and viewer_supported()
+    targets = args.target
 
     messages: list[str] = []
 
     if args.uninstall:
-        if args.target in ("all", "codex"):
+        if "codex" in targets:
             messages.extend(uninstall_codex(codex_home))
-        if args.target in ("all", "copilot"):
+        if "copilot" in targets:
             messages.extend(uninstall_copilot(copilot_home))
+        if "claude" in targets:
+            messages.extend(uninstall_claude(claude_home))
         messages.append(uv_tool_uninstall())
         for message in messages:
             print(message)
@@ -426,10 +576,12 @@ def main(argv: list[str]) -> int:
     exe = resolve_installed_exe()
     messages.append(f"Installed uv tool {SERVER_NAME} -> {exe}")
 
-    if args.target in ("all", "codex"):
+    if "codex" in targets:
         messages.extend(install_codex(codex_home, exe, viewer, args.viewer_socket_dir))
-    if args.target in ("all", "copilot"):
+    if "copilot" in targets:
         messages.extend(install_copilot(copilot_home, exe, viewer, args.viewer_socket_dir))
+    if "claude" in targets:
+        messages.extend(install_claude(claude_home, exe, viewer, args.viewer_socket_dir))
 
     for message in messages:
         print(message)

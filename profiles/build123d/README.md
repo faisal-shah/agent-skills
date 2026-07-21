@@ -16,6 +16,34 @@ Installed files:
 | Copilot | `~/.copilot/profiles/build123d/skills/b123d-modeling/SKILL.md` |
 | Copilot | `~/.copilot/profiles/build123d/skills/b123d-drawing/SKILL.md` |
 | Copilot | `~/.copilot/profiles/build123d/viewer/live_viewer_pyvista.py` (POSIX) |
+| Claude Code | `~/.claude/profiles/build123d/.claude-plugin/plugin.json` |
+| Claude Code | `~/.claude/profiles/build123d/.mcp.json` |
+| Claude Code | `~/.claude/profiles/build123d/agents/build123d.md` |
+| Claude Code | `~/.claude/profiles/build123d/skills/b123d-modeling/SKILL.md` |
+| Claude Code | `~/.claude/profiles/build123d/skills/b123d-drawing/SKILL.md` |
+| Claude Code | `~/.claude/profiles/build123d/viewer/live_viewer_pyvista.py` (POSIX) |
+
+## Claude Code
+
+Claude Code has no `--profile`. The equivalent is a **plugin directory**: one
+folder holding the MCP server (`.mcp.json`), the profile instructions (a subagent
+in `agents/`), and the two workflow skills. `model: opus` on the subagent stands
+in for Codex's `model_reasoning_effort = "xhigh"`.
+
+It is installed to `~/.claude/profiles/build123d` — deliberately **not**
+`~/.claude/skills` or `~/.claude/plugins`, both of which load in every session. A
+Codex or Copilot profile is inert until selected, and the Claude port keeps that
+property by being loaded per launch:
+
+```bash
+claude --plugin-dir ~/.claude/profiles/build123d --agent build123d
+```
+
+Upstream ships the two workflow files without YAML frontmatter, since Codex and
+Copilot reference them by absolute path. Claude Code selects skills by
+`description`, so the installer derives frontmatter from each file's H1 and
+opening paragraph — derived rather than hand-written, so it tracks upstream
+wording. Verify a generated profile with `claude plugin validate <dir>`.
 
 The workflow files are sourced from the installed `build123d-mcp` package during installation. The installer installs the server from the `build123d-mcp` main branch (which provides the live session viewer) as a persistent `uv` tool, and the generated config launches that installed executable directly:
 
@@ -30,6 +58,7 @@ Launch examples:
 ```bash
 codex --profile build123d
 copilot --agent build123d
+claude --plugin-dir ~/.claude/profiles/build123d --agent build123d
 ```
 
 On native Windows the generated config launches the server with `--in-process`:
@@ -45,6 +74,7 @@ Optional launch helpers:
 |--------|---------|
 | `codex-build123d` | `codex --profile build123d` |
 | `copilot-build123d` | `copilot --agent build123d` |
+| `claude-build123d` | `claude --plugin-dir ~/.claude/profiles/build123d --agent build123d` |
 | `build123d-viewer` | open the live 3D viewer (see below) |
 
 Install them with `.\install.ps1 -InstallPowerShellAliases` on Windows or

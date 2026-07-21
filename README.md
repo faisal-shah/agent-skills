@@ -101,7 +101,11 @@ hand-edited, so it is never written by a bare install. When `--claude` does
 overwrite a differing file, the previous version is kept as `CLAUDE.md.bak`.
 
 Bare `./install.sh` still targets only Copilot and Codex. `--all` means all three.
-The build123d profile has no Claude target and is skipped for `--claude` alone.
+
+The build123d profile installs for whichever targets are named. Claude Code has no
+`--profile`, so its port is a plugin directory at `~/.claude/profiles/build123d`,
+loaded per launch with `claude --plugin-dir ... --agent build123d` rather than
+installed globally. See [profiles/build123d](profiles/build123d/).
 
 The default installer also creates profile files:
 
@@ -117,6 +121,7 @@ The default installer also creates profile files:
 | GitHub Copilot CLI | `~/.copilot/profiles/build123d/skills/b123d-modeling/SKILL.md` |
 | GitHub Copilot CLI | `~/.copilot/profiles/build123d/skills/b123d-drawing/SKILL.md` |
 | GitHub Copilot CLI | `~/.copilot/profiles/build123d/viewer/live_viewer_pyvista.py` (POSIX) |
+| Claude Code | `~/.claude/profiles/build123d/` (plugin dir: `.mcp.json`, `agents/`, `skills/`, viewer) |
 
 The build123d profile resolves its workflow files from the installed `build123d-mcp`
 package during installation. It installs the server from the `build123d-mcp` main

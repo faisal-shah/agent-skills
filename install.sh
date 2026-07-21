@@ -90,14 +90,19 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# A comma-separated list rather than one name: with three targets, asking for two
+# of them must not silently mean all three. A bare install names the original two
+# explicitly, so adding Claude did not widen the default.
 agent_target() {
-    if [ "$INSTALL_COPILOT" = true ] && [ "$INSTALL_CODEX" = false ]; then
-        echo "copilot"
-    elif [ "$INSTALL_CODEX" = true ] && [ "$INSTALL_COPILOT" = false ]; then
-        echo "codex"
-    else
-        echo "all"
+    if [ "$SAW_TARGET_FLAG" = false ]; then
+        echo "codex,copilot"
+        return
     fi
+    targets=""
+    if [ "$INSTALL_CODEX" = true ]; then targets="$targets,codex"; fi
+    if [ "$INSTALL_COPILOT" = true ]; then targets="$targets,copilot"; fi
+    if [ "$INSTALL_CLAUDE" = true ]; then targets="$targets,claude"; fi
+    echo "${targets#,}"
 }
 
 require_uv() {
@@ -241,8 +246,7 @@ if [ -z "$SKILLS_DIR" ] && [ "$UNINSTALL" = false ]; then
     fi
 fi
 
-if [ -z "$SKILLS_DIR" ] && [ "$NO_PROFILES" = false ] &&
-   { [ "$SAW_TARGET_FLAG" = false ] || [ "$INSTALL_COPILOT" = true ] || [ "$INSTALL_CODEX" = true ]; }; then
+if [ -z "$SKILLS_DIR" ] && [ "$NO_PROFILES" = false ]; then
     install_build123d_profile
 fi
 

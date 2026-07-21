@@ -65,10 +65,16 @@ function Test-CommandAvailable {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+# A comma-separated list rather than one name: with three targets, asking for two
+# of them must not silently mean all three. A bare install names the original two
+# explicitly, so adding Claude did not widen the default.
 function Get-AgentTarget {
-    if ($Copilot -and -not $Codex -and -not $All) { return "copilot" }
-    if ($Codex -and -not $Copilot -and -not $All) { return "codex" }
-    return "all"
+    if (-not $SawTargetFlag) { return "codex,copilot" }
+    $targets = @()
+    if ($Codex -or $All)   { $targets += "codex" }
+    if ($Copilot -or $All) { $targets += "copilot" }
+    if ($Claude -or $All)  { $targets += "claude" }
+    return ($targets -join ",")
 }
 
 function Invoke-Build123dProfileInstaller {
@@ -232,9 +238,7 @@ if (-not $SkillsDir -and -not $Uninstall) {
     }
 }
 
-# The build123d profile installer has no Claude target; skip it for -Claude alone.
-if (-not $SkillsDir -and -not $NoProfiles -and
-    ((-not $SawTargetFlag) -or $Copilot -or $Codex -or $All)) {
+if (-not $SkillsDir -and -not $NoProfiles) {
     Invoke-Build123dProfileInstaller -Target (Get-AgentTarget)
 }
 
