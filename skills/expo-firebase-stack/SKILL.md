@@ -1,6 +1,6 @@
 ---
 name: expo-firebase-stack
-description: Diagnose and avoid the recurring traps in Expo + react-native-web + Firebase JS SDK apps — Google sign-in failing only inside chat-app browsers, DEVELOPER_ERROR on Android, emulator data that "does not exist", stale Metro bundles, unthemeable react-native-web controls, push notifications that deliver nothing while every visible part works, and live-query races that make seeds and tests silently do nothing. Use when building, debugging, or deploying an Expo app that shares one codebase across Android and web via react-native-web with Firebase for auth/Firestore/Functions.
+description: Diagnose and avoid the recurring traps in Expo + react-native-web + Firebase JS SDK apps — Google sign-in failing only inside chat-app browsers, DEVELOPER_ERROR on Android, emulator data that "does not exist", stale Metro bundles, native debug builds serving stale JS or an unset EXPO_PUBLIC flag, screenshotting a stale installed build, unauthenticated screenshots that verify nothing, unthemeable react-native-web controls, push notifications that deliver nothing while every visible part works, and live-query races that make seeds and tests silently do nothing. Use when building, debugging, deploying, or verifying an Expo app that shares one codebase across Android and web via react-native-web with Firebase for auth/Firestore/Functions.
 ---
 
 # Expo + react-native-web + Firebase: the traps
@@ -270,6 +270,34 @@ property is tested rather than assumed.
 `EXPO_PUBLIC_*` is **inlined at build time**. Build with `--clear` when config
 changes. Corollary: `EXPO_PUBLIC_*` can never hold a secret — anyone with the app
 has it.
+
+### A native DEBUG build ignores an `EXPO_PUBLIC_*` flag you did set
+The app on the emulator behaves as if the flag is unset — no dev-only affordance,
+pointing at the wrong backend — even though you exported it.
+
+A native **debug** build carries almost no JS: it loads the bundle, and the
+inlined `EXPO_PUBLIC_*` values, **from Metro at launch**. So the flag has to be
+set in the environment that started *Metro* (`EXPO_PUBLIC_X=1 expo start`), not
+when you built the APK — and Metro's transform cache can hand back an older
+bundle. **Restart Metro with `--clear` and the vars set**, then relaunch. The APK
+itself holds no `EXPO_PUBLIC_*` values to fix.
+
+### You are screenshotting a build that is not your latest code
+The running app shows behaviour that does not match the change you just made, and
+you start debugging a fix that is actually already correct.
+
+The installed build is stale. `expo run:android` printing **BUILD SUCCESSFUL is
+not proof it installed** — if the emulator drops during the run (a shared AVD is
+flaky), the install step never happens and yesterday's APK is still on the
+device. Confirm what is actually installed before trusting any screenshot:
+
+```bash
+adb shell dumpsys package <applicationId> | grep versionName
+```
+
+Derive `versionName` from `app.json` so that number means something — a scaffold
+default that never bumps makes "which build is this?" unanswerable, on the device
+and in your crash reports.
 
 ## react-native-web
 
@@ -609,6 +637,24 @@ than no tool at all. Write control characters as escapes (`\u0000`): identical
 runtime value, readable source. Worth a CI guard, since nothing else complains.
 
 ## Testing and seeding
+
+### "Verified by screenshot" — of the one screen that proves nothing
+You captured a screenshot, it looked right, you shipped, and the bug was on a
+screen you never saw.
+
+The sign-in screen is the only screen an unauthenticated screenshot can reach,
+and it exercises almost none of the app — no board, no forms, no empty states, no
+lists. A green sign-in shot is not evidence about any of them. This bites hardest
+for changes that touch *every* screen (a theme, a shared component): the one
+screen you can trivially capture is the least representative.
+
+To look at the real screens, get **past** auth against the emulators: a
+`__DEV__`-only sign-in row (rendered only when pointed at the emulators) lets a
+Playwright/adb script click a seeded user, then seed data by driving the UI, then
+screenshot the authenticated screens — board, card, settings, the empty states.
+Correct values in the token/source file survive right up until you look at the
+rendered screen; layout gaps and contrast misuse both pass every "the code is
+right" check and only appear here.
 
 ### A seed or test silently did nothing, repeatedly
 Duplicate records, or an approval loop that approved nobody.

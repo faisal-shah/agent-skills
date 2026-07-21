@@ -159,6 +159,15 @@ darkened sage `#4E7A43`, taupe `#A58D7A`, plus clay `#A32218`, burnt orange
 `#C2611F`, slate `#3E6B8A`, violet `#6B4C8A`. Keep any additions mutually
 distinct (aim for ΔE > ~15) and legible on the ivory surfaces.
 
+**Do NOT render the chip's own text in the swatch colour.** A tag/label chip that
+colours its label the same as the swatch reads fine for raspberry and clay and
+fails the instant the swatch is light — the gold chip's text lands at ~2.1:1 and
+is barely readable. Put the colour where contrast does not matter (a filled dot,
+a left bar, a thin outline) and keep the **text** at `text.primary`/`secondary`.
+The swatch communicates the colour; the word communicates the word. This is the
+same cut as gold-as-text above, and it is easy to miss because most of the set is
+dark enough to hide it — you only see it on the light swatch, on a real screen.
+
 ## The logo
 
 Arabic calligraphy reading *Sabeel* with gold accent strokes. One asset, on the
@@ -191,3 +200,17 @@ away. (Because the apps are light-only, no ivory-on-dark reverse mark is used.)
 | Antique Gold `#C6A15B` | 2.1 | decoration only |
 
 And ivory `#F9F2E9` on a raspberry `#83114F` fill: 8.8 ✓.
+
+## Right values are not a right screen — look
+
+Every mistake in this skill survives a code review that only checks *the hex is
+correct*. The token file can be flawless while the screen is wrong, because the
+bugs are about **which token is used where**: content set in `muted`, a chip that
+colours its own text, gold reused on a dark fill. All of these had the right
+values and the wrong result.
+
+So the values are the start, not the finish. Before calling a colour decision
+done, **look at the actual rendered screen** — authenticated, with real content,
+on the surface people use (a phone especially, where the low-contrast misuses
+show first). A correct palette applied wrongly looks washed-out on someone's
+phone outdoors, and no amount of checking the hexes finds it.
