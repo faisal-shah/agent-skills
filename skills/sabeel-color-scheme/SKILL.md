@@ -30,6 +30,34 @@ dividers, a focus ring, a selected state. If a layout is more than a fifth
 raspberry or shows large fields of gold, it is off-brand even with the right
 hexes.
 
+### Chrome vs content: where raspberry may and may not go
+
+The proportion rule is easy to honour in *content* and quietly break in
+*chrome* — nav headers, app bars, sign-in and splash screens. Two Sabeel apps
+diverged on exactly this while sharing identical hexes: one painted a raspberry
+app bar on every screen and a full-raspberry sign-in, the other kept ivory
+throughout. Both authors read "raspberry with purpose" and answered the chrome
+question differently, because it was never stated. It is now:
+
+- **Backgrounds and content areas are ivory.** Always. Never raspberry.
+- **Chrome is ivory too** — a nav header / app bar is a dark title
+  (`text.primary`) and a plain/taupe back control on the ivory canvas, **not** a
+  raspberry bar. A brand-coloured app bar repeated on every screen puts raspberry
+  well past its ~20% share; that it is "just the header" does not exempt it.
+- **Sign-in / splash / auth is an ivory screen** — the black-and-gold logo on the
+  ivory canvas, a heading, and a raspberry *button*. It is **not** a full-bleed
+  raspberry field. A whole screen of raspberry is the "background wash" the
+  proportion rule forbids, and it is the single most common way to blow the
+  budget.
+- **Raspberry earns its place on:** primary buttons, selected/active states,
+  links, headings, and small key accents — the things a person acts on or reads
+  as the brand, not the surface they sit on.
+
+The check that catches this: **put two Sabeel apps side by side.** They must read
+as one identity. Verifying a screen against its *own* previous version confirms
+the hexes changed; only the side-by-side exposes a proportion/chrome drift, and
+that is the comparison that is easy to skip.
+
 ## Accessibility: three cuts you must know
 
 The palette is a *brand* palette; two of its colours fail WCAG contrast in the
