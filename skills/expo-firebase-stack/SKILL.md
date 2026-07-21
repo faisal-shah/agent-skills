@@ -656,6 +656,27 @@ Correct values in the token/source file survive right up until you look at the
 rendered screen; layout gaps and contrast misuse both pass every "the code is
 right" check and only appear here.
 
+### The native screenshot is of a different app entirely
+You "verified on native": launched the app, screenshotted, it looked right — but
+it was a *sibling app* on the same emulator, fully rendered, counterfeiting
+success.
+
+`adb shell monkey -p <package>` (and `am start`) with a wrong or nonexistent
+package name **silently launches nothing** and still exits 0. Whatever was already
+foregrounded — a sibling app from another project sharing this emulator — stays on
+screen, and the screenshot looks like a clean success. The package id is easy to
+get wrong (the human-facing name and the applicationId rarely match). Two
+compounding traps: a debug build does **not** reliably red-screen when it can't
+reach *its* Metro — if a sibling project's Metro holds the shared port it will
+serve that project's bundle into your app shell, or a stale cached bundle renders;
+and a multi-line launch command whose newlines collapse into spaces can silently
+root Metro at the repo root instead of the app dir (its bundle 404s on `./index`).
+
+Prove the mechanism: confirm the **foreground package** is yours
+(`adb shell dumpsys activity activities | grep -i mResumedActivity`), and confirm
+**your** Metro logged the bundle (`… Bundled … app/index.ts (N modules)`) — not
+just that *a* Metro answered `/status`. Only then trust the pixels.
+
 ### A seed or test silently did nothing, repeatedly
 Duplicate records, or an approval loop that approved nobody.
 
