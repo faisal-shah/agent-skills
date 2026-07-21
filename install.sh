@@ -181,6 +181,13 @@ fi
 [ "$UNINSTALL" = true ] && PASSTHRU=(--uninstall "${PASSTHRU[@]}")
 
 for skill_dir in "$SCRIPT_DIR"/skills/*/; do
+    # A skill can opt OUT of the bulk install by dropping a .no-default-install
+    # marker in its directory. It is then installable only via its own
+    # skills/<name>/install.sh. Used for project-specific skills (e.g.
+    # sabeel-color-scheme) that most users of this repo do not want.
+    if [ -f "$skill_dir/.no-default-install" ]; then
+        continue
+    fi
     skill_install="$skill_dir/install.sh"
     if [ -x "$skill_install" ]; then
         "$skill_install" "${PASSTHRU[@]}"

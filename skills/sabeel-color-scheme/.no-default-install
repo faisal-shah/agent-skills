@@ -1,0 +1,7 @@
+This skill is project-specific (Sabeel Institute brand palette) and is
+deliberately excluded from the root install.sh / install.ps1 bulk install.
+
+Install it explicitly:
+  ./skills/sabeel-color-scheme/install.sh            # both Copilot and Codex dirs
+  ./skills/sabeel-color-scheme/install.sh --codex
+  ./skills/sabeel-color-scheme/install.sh --skills-dir ~/.claude/skills

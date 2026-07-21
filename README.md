@@ -21,6 +21,16 @@ Elmer FEM setup, schematic drawing, and persistent memory across sessions.
 | [technical-report](skills/technical-report/) | Generate professional DOCX technical reports with python-docx: table formatting, alignment rules, image embedding, page layout, and matplotlib integration | Python 3.10+, python-docx; matplotlib *(optional)* |
 | [uv](skills/uv/) | Use `uv` instead of pip/python/venv for scripts, dependencies, and builds | [uv](https://docs.astral.sh/uv/) |
 
+### Not installed by default
+
+| Skill | Description | Install |
+|-------|-------------|---------|
+| [sabeel-color-scheme](skills/sabeel-color-scheme/) | Apply the Sabeel Institute brand palette (Option 1) correctly — the five colours, roles and proportions, accessibility cuts, single-light-theme rule | `./skills/sabeel-color-scheme/install.sh` |
+
+This one is project-specific, so the root installer skips it (it carries a
+`.no-default-install` marker). Install it explicitly from its own directory, e.g.
+`./skills/sabeel-color-scheme/install.sh --skills-dir ~/.claude/skills`.
+
 ## Profiles
 
 | Profile | Description | Launch |
