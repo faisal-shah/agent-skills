@@ -23,6 +23,7 @@ verification, and iterative refinement.
 ```bash
 ./skills/robust-doc/install.sh                      # both Copilot and Codex
 ./skills/robust-doc/install.sh --copilot            # Copilot only
+./skills/robust-doc/install.sh --claude             # Claude Code only
 ./skills/robust-doc/install.sh --skills-dir .github/skills
 ./skills/robust-doc/install.sh --uninstall
 ```
@@ -32,6 +33,7 @@ verification, and iterative refinement.
 ```powershell
 .\skills\robust-doc\install.ps1
 .\skills\robust-doc\install.ps1 -Copilot
+.\skills\robust-doc\install.ps1 -Claude
 .\skills\robust-doc\install.ps1 -SkillsDir C:\my\skills
 .\skills\robust-doc\install.ps1 -Uninstall
 ```

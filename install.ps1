@@ -17,6 +17,9 @@
     .\install.ps1 -Codex
 
 .EXAMPLE
+    .\install.ps1 -Claude
+
+.EXAMPLE
     .\install.ps1 -InstallPowerShellAliases
 
 .EXAMPLE
@@ -26,6 +29,7 @@ param(
     [string]$SkillsDir,
     [switch]$Copilot,
     [switch]$Codex,
+    [switch]$Claude,
     [switch]$All,
     [switch]$Uninstall,
     [switch]$NoProfiles,
@@ -35,11 +39,12 @@ param(
 )
 
 function Show-Usage {
-    Write-Output "Usage: .\install.ps1 [-Uninstall] [-Copilot|-Codex|-All] [-SkillsDir <path>] [options]"
+    Write-Output "Usage: .\install.ps1 [-Uninstall] [-Copilot|-Codex|-Claude|-All] [-SkillsDir <path>] [options]"
     Write-Output ""
     Write-Output "  Install all:       .\install.ps1"
     Write-Output "  Copilot only:      .\install.ps1 -Copilot"
     Write-Output "  Codex only:        .\install.ps1 -Codex"
+    Write-Output "  Claude Code only:  .\install.ps1 -Claude"
     Write-Output "  Custom skills dir: .\install.ps1 -SkillsDir C:\my\skills"
     Write-Output "  Uninstall all:     .\install.ps1 -Uninstall"
     Write-Output ""
@@ -159,18 +164,20 @@ function Uninstall-PowerShellLaunchHelper {
 
 if ($Help) { Show-Usage }
 
-if ($SkillsDir -and ($Copilot -or $Codex -or $All)) {
+if ($SkillsDir -and ($Copilot -or $Codex -or $Claude -or $All)) {
     Write-Error "Use either -SkillsDir or agent switches, not both."
     exit 1
 }
 
 $ScriptRoot = $PSScriptRoot
+$SawTargetFlag = $Copilot -or $Codex -or $Claude -or $All
 
 $Passthru = @{}
 if ($Uninstall)  { $Passthru["Uninstall"] = $true }
 if ($SkillsDir)  { $Passthru["SkillsDir"] = $SkillsDir }
 if ($Copilot)    { $Passthru["Copilot"] = $true }
 if ($Codex)      { $Passthru["Codex"] = $true }
+if ($Claude)     { $Passthru["Claude"] = $true }
 if ($All)        { $Passthru["All"] = $true }
 
 Get-ChildItem -Path (Join-Path $ScriptRoot "skills") -Directory | ForEach-Object {
@@ -190,8 +197,11 @@ Get-ChildItem -Path (Join-Path $ScriptRoot "skills") -Directory | ForEach-Object
 }
 
 if (-not $SkillsDir -and -not $Uninstall) {
-    $installCopilotInstr = $Copilot -or $All -or (-not $Copilot -and -not $Codex)
-    $installCodexInstr   = $Codex   -or $All -or (-not $Copilot -and -not $Codex)
+    $installCopilotInstr = $Copilot -or $All -or (-not $SawTargetFlag)
+    $installCodexInstr   = $Codex   -or $All -or (-not $SawTargetFlag)
+    # Never by default: ~/.claude/CLAUDE.md is hand-edited far more often than the
+    # other two, so it is only written when -Claude or -All is asked for.
+    $installClaudeInstr  = $Claude  -or $All
 
     if ($installCopilotInstr) {
         $copilotDir = Join-Path $HOME ".copilot"
@@ -207,9 +217,24 @@ if (-not $SkillsDir -and -not $Uninstall) {
                   (Join-Path $codexDir "instructions.md") -Force
         Write-Output "Installed codex-instructions.md to $codexDir"
     }
+    if ($installClaudeInstr) {
+        $claudeDir = Join-Path $HOME ".claude"
+        New-Item -ItemType Directory -Force -Path $claudeDir | Out-Null
+        $claudeSource = Join-Path $ScriptRoot "claude-instructions.md"
+        $claudeTarget = Join-Path $claudeDir "CLAUDE.md"
+        if ((Test-Path $claudeTarget) -and
+            (Get-FileHash $claudeTarget).Hash -ne (Get-FileHash $claudeSource).Hash) {
+            Copy-Item $claudeTarget "$claudeTarget.bak" -Force
+            Write-Output "Backed up existing $claudeTarget to $claudeTarget.bak"
+        }
+        Copy-Item $claudeSource $claudeTarget -Force
+        Write-Output "Installed claude-instructions.md to $claudeTarget"
+    }
 }
 
-if (-not $SkillsDir -and -not $NoProfiles) {
+# The build123d profile installer has no Claude target; skip it for -Claude alone.
+if (-not $SkillsDir -and -not $NoProfiles -and
+    ((-not $SawTargetFlag) -or $Copilot -or $Codex -or $All)) {
     Invoke-Build123dProfileInstaller -Target (Get-AgentTarget)
 }
 

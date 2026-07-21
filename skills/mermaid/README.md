@@ -23,6 +23,7 @@ for creating and validating Mermaid diagrams with the official Mermaid CLI.
 ```bash
 ./skills/mermaid/install.sh                         # both Copilot and Codex
 ./skills/mermaid/install.sh --copilot               # Copilot only
+./skills/mermaid/install.sh --claude                # Claude Code only
 ./skills/mermaid/install.sh --skills-dir .github/skills
 ./skills/mermaid/install.sh --uninstall
 ```
@@ -32,6 +33,7 @@ for creating and validating Mermaid diagrams with the official Mermaid CLI.
 ```powershell
 .\skills\mermaid\install.ps1
 .\skills\mermaid\install.ps1 -Copilot
+.\skills\mermaid\install.ps1 -Claude
 .\skills\mermaid\install.ps1 -SkillsDir C:\my\skills
 .\skills\mermaid\install.ps1 -Uninstall
 ```

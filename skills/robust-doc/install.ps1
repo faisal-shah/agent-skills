@@ -11,6 +11,7 @@
     .\install.ps1                               # install to default Copilot and Codex dirs
     .\install.ps1 -Copilot                      # install to Copilot only
     .\install.ps1 -Codex                        # install to Codex only
+    .\install.ps1 -Claude                       # install to Claude Code only
     .\install.ps1 -SkillsDir C:\my\skills       # install to custom path
     .\install.ps1 -Uninstall                    # uninstall from default dirs
 #>
@@ -18,6 +19,7 @@ param(
     [string]$SkillsDir,
     [switch]$Copilot,
     [switch]$Codex,
+    [switch]$Claude,
     [switch]$All,
     [switch]$Uninstall,
     [switch]$Help
@@ -26,11 +28,12 @@ param(
 $SkillName = "robust-doc"
 
 function Show-Usage {
-    Write-Host "Usage: .\install.ps1 [-Uninstall] [-Copilot|-Codex|-All] [-SkillsDir <path>]"
+    Write-Host "Usage: .\install.ps1 [-Uninstall] [-Copilot|-Codex|-Claude|-All] [-SkillsDir <path>]"
     Write-Host ""
     Write-Host "  Install:    .\install.ps1                          # defaults to ~/.copilot/skills and ~/.codex/skills"
     Write-Host "  Install:    .\install.ps1 -Copilot"
     Write-Host "  Install:    .\install.ps1 -Codex"
+    Write-Host "  Install:    .\install.ps1 -Claude                    # ~/.claude/skills"
     Write-Host "  Install:    .\install.ps1 -SkillsDir C:\my\skills"
     Write-Host "  Uninstall:  .\install.ps1 -Uninstall               # removes from both default user dirs"
     Write-Host ""
@@ -40,7 +43,7 @@ function Show-Usage {
 
 if ($Help) { Show-Usage }
 
-if ($SkillsDir -and ($Copilot -or $Codex -or $All)) {
+if ($SkillsDir -and ($Copilot -or $Codex -or $Claude -or $All)) {
     Write-Error "Use either -SkillsDir or agent switches, not both."
     exit 1
 }
@@ -54,9 +57,10 @@ if ($SkillsDir) {
     if ($All) {
         $Copilot = $true
         $Codex = $true
+        $Claude = $true
     }
 
-    if (-not $Copilot -and -not $Codex) {
+    if (-not $Copilot -and -not $Codex -and -not $Claude) {
         $Copilot = $true
         $Codex = $true
     }
@@ -66,6 +70,9 @@ if ($SkillsDir) {
     }
     if ($Codex) {
         $TargetRoots += (Join-Path (Join-Path $HOME ".codex") "skills")
+    }
+    if ($Claude) {
+        $TargetRoots += (Join-Path (Join-Path $HOME ".claude") "skills")
     }
 }
 

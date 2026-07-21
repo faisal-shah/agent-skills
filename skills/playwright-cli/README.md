@@ -29,6 +29,7 @@ for browser automation using the `playwright-cli` command-line interface.
 ```bash
 ./skills/playwright-cli/install.sh                  # both Copilot and Codex
 ./skills/playwright-cli/install.sh --copilot        # Copilot only
+./skills/playwright-cli/install.sh --claude         # Claude Code only
 ./skills/playwright-cli/install.sh --skills-dir .github/skills
 ./skills/playwright-cli/install.sh --uninstall
 ```
@@ -38,6 +39,7 @@ for browser automation using the `playwright-cli` command-line interface.
 ```powershell
 .\skills\playwright-cli\install.ps1
 .\skills\playwright-cli\install.ps1 -Copilot
+.\skills\playwright-cli\install.ps1 -Claude
 .\skills\playwright-cli\install.ps1 -SkillsDir C:\my\skills
 .\skills\playwright-cli\install.ps1 -Uninstall
 ```

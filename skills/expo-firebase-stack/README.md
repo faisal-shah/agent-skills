@@ -48,6 +48,7 @@ afternoon each the first time:
 ```bash
 ./skills/expo-firebase-stack/install.sh                          # both Copilot and Codex
 ./skills/expo-firebase-stack/install.sh --copilot                # Copilot only
+./skills/expo-firebase-stack/install.sh --claude                 # Claude Code only
 ./skills/expo-firebase-stack/install.sh --skills-dir .github/skills
 ./skills/expo-firebase-stack/install.sh --uninstall
 ```
@@ -57,6 +58,7 @@ afternoon each the first time:
 ```powershell
 .\skills\expo-firebase-stack\install.ps1
 .\skills\expo-firebase-stack\install.ps1 -Copilot
+.\skills\expo-firebase-stack\install.ps1 -Claude
 .\skills\expo-firebase-stack\install.ps1 -SkillsDir .github\skills
 .\skills\expo-firebase-stack\install.ps1 -Uninstall
 ```

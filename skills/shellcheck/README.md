@@ -23,6 +23,7 @@ PSScriptAnalyzer.
 ```bash
 ./skills/shellcheck/install.sh                      # both Copilot and Codex
 ./skills/shellcheck/install.sh --copilot            # Copilot only
+./skills/shellcheck/install.sh --claude             # Claude Code only
 ./skills/shellcheck/install.sh --skills-dir .github/skills
 ./skills/shellcheck/install.sh --uninstall
 ```
@@ -32,6 +33,7 @@ PSScriptAnalyzer.
 ```powershell
 .\skills\shellcheck\install.ps1
 .\skills\shellcheck\install.ps1 -Copilot
+.\skills\shellcheck\install.ps1 -Claude
 .\skills\shellcheck\install.ps1 -SkillsDir C:\my\skills
 .\skills\shellcheck\install.ps1 -Uninstall
 ```

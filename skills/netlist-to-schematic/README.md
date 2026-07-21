@@ -26,6 +26,7 @@ publication-quality **circuit schematic diagrams** using Circuitikz (LaTeX).
 ./install.sh                                        # installs all skills
 ./skills/netlist-to-schematic/install.sh             # install to both Copilot and Codex
 ./skills/netlist-to-schematic/install.sh --copilot
+./skills/netlist-to-schematic/install.sh --claude # Claude Code only
 ./skills/netlist-to-schematic/install.sh --uninstall
 ```
 
@@ -35,6 +36,7 @@ publication-quality **circuit schematic diagrams** using Circuitikz (LaTeX).
 .\install.ps1                                        # installs all skills
 .\skills\netlist-to-schematic\install.ps1             # install to both Copilot and Codex
 .\skills\netlist-to-schematic\install.ps1 -Copilot
+.\skills\netlist-to-schematic\install.ps1 -Claude
 .\skills\netlist-to-schematic\install.ps1 -Uninstall
 ```
 

@@ -31,6 +31,7 @@ executive PDFs when DOCX is not required.
 ./install.sh                               # installs to ~/.copilot/skills and ~/.codex/skills
 ./skills/technical-report/install.sh       # install to both Copilot and Codex
 ./skills/technical-report/install.sh --copilot
+./skills/technical-report/install.sh --claude # Claude Code only
 ./skills/technical-report/install.sh --uninstall
 ```
 
@@ -40,6 +41,7 @@ executive PDFs when DOCX is not required.
 .\install.ps1                              # installs all skills
 .\skills\technical-report\install.ps1      # install to both Copilot and Codex
 .\skills\technical-report\install.ps1 -Copilot
+.\skills\technical-report\install.ps1 -Claude
 .\skills\technical-report\install.ps1 -Uninstall
 ```
 

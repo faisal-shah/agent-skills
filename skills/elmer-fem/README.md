@@ -26,6 +26,7 @@ transient setup, axisymmetric models, and ParaView post-processing.
 ./install.sh                               # installs all skills to ~/.copilot/skills and ~/.codex/skills
 ./skills/elmer-fem/install.sh              # install to both Copilot and Codex
 ./skills/elmer-fem/install.sh --copilot
+./skills/elmer-fem/install.sh --claude # Claude Code only
 ./skills/elmer-fem/install.sh --uninstall
 ```
 
@@ -35,6 +36,7 @@ transient setup, axisymmetric models, and ParaView post-processing.
 .\install.ps1                               # installs all skills
 .\skills\elmer-fem\install.ps1              # install to both Copilot and Codex
 .\skills\elmer-fem\install.ps1 -Copilot
+.\skills\elmer-fem\install.ps1 -Claude
 .\skills\elmer-fem\install.ps1 -Uninstall
 ```
 

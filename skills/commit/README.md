@@ -22,6 +22,7 @@ for producing consistent git commit messages using Conventional Commits style.
 ```bash
 ./skills/commit/install.sh                          # both Copilot and Codex
 ./skills/commit/install.sh --copilot                # Copilot only
+./skills/commit/install.sh --claude                 # Claude Code only
 ./skills/commit/install.sh --skills-dir .github/skills
 ./skills/commit/install.sh --uninstall
 ```
@@ -31,6 +32,7 @@ for producing consistent git commit messages using Conventional Commits style.
 ```powershell
 .\skills\commit\install.ps1
 .\skills\commit\install.ps1 -Copilot
+.\skills\commit\install.ps1 -Claude
 .\skills\commit\install.ps1 -SkillsDir C:\my\skills
 .\skills\commit\install.ps1 -Uninstall
 ```

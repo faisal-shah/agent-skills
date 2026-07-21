@@ -29,6 +29,7 @@ publication-quality plots.
 ./install.sh                               # installs all skills to ~/.copilot/skills and ~/.codex/skills
 ./skills/circuit-sim/install.sh            # install to both Copilot and Codex
 ./skills/circuit-sim/install.sh --copilot
+./skills/circuit-sim/install.sh --claude # Claude Code only
 ./skills/circuit-sim/install.sh --uninstall
 ```
 
@@ -38,6 +39,7 @@ publication-quality plots.
 .\install.ps1                               # installs all skills
 .\skills\circuit-sim\install.ps1            # install to both Copilot and Codex
 .\skills\circuit-sim\install.ps1 -Copilot
+.\skills\circuit-sim\install.ps1 -Claude
 .\skills\circuit-sim\install.ps1 -Uninstall
 ```
 

@@ -29,7 +29,7 @@ Elmer FEM setup, schematic drawing, and persistent memory across sessions.
 
 This one is project-specific, so the root installer skips it (it carries a
 `.no-default-install` marker). Install it explicitly from its own directory, e.g.
-`./skills/sabeel-color-scheme/install.sh --skills-dir ~/.claude/skills`.
+`./skills/sabeel-color-scheme/install.sh --claude`.
 
 ## Profiles
 
@@ -41,7 +41,11 @@ This one is project-specific, so the root installer skips it (it carries a
 
 Install all skills at once, or pick individual ones. Installers default to both
 user-level agent skill directories if no path is provided: `~/.copilot/skills`
-and `~/.codex/skills`.
+and `~/.codex/skills`. Claude Code (`~/.claude/skills`) is opt-in via `--claude`.
+
+Skills install by **copy**, not symlink. Editing a `SKILL.md` in this repo changes
+nothing an agent reads until you re-run the installer, and a stale copy looks
+identical to a current one. Re-run the installer after every pull.
 
 **Linux / macOS / WSL:**
 
@@ -49,6 +53,8 @@ and `~/.codex/skills`.
 ./install.sh                                        # all skills → both Copilot and Codex
 ./install.sh --copilot                              # all skills → Copilot only
 ./install.sh --codex                                # all skills → Codex only
+./install.sh --claude                               # all skills → Claude Code only
+./install.sh --all                                  # all skills → all three
 ./install.sh --no-profiles                          # skills and instructions only
 ./install.sh --install-shell-aliases                # add codex-build123d and copilot-build123d helpers
 ./install.sh --smoke-test-build123d                 # verify build123d-mcp launches
@@ -63,6 +69,8 @@ and `~/.codex/skills`.
 .\install.ps1                                       # all skills → both Copilot and Codex
 .\install.ps1 -Copilot                              # all skills → Copilot only
 .\install.ps1 -Codex                                # all skills → Codex only
+.\install.ps1 -Claude                              # all skills → Claude Code only
+.\install.ps1 -All                                 # all skills → all three
 .\install.ps1 -NoProfiles                           # skills and instructions only
 .\install.ps1 -InstallPowerShellAliases             # add codex-build123d and copilot-build123d helpers
 .\install.ps1 -SmokeTestBuild123d                   # verify build123d-mcp launches
@@ -78,13 +86,22 @@ Supported skill directories:
 | GitHub Copilot CLI (user) | `~/.copilot/skills` |
 | GitHub Copilot (project) | `.github/skills` |
 | OpenAI Codex | `~/.codex/skills` |
+| Claude Code (user) | `~/.claude/skills` (opt-in: `--claude`) |
 
-The installer also copies **user-level instruction files** when installing to default directories:
+The installer also copies **user-level instruction files**:
 
-| Agent | Instructions file | Source |
-|-------|-------------------|--------|
-| GitHub Copilot | `~/.copilot/copilot-instructions.md` | `copilot-instructions.md` |
-| OpenAI Codex | `~/.codex/instructions.md` | `codex-instructions.md` |
+| Agent | Instructions file | Source | When |
+|-------|-------------------|--------|------|
+| GitHub Copilot | `~/.copilot/copilot-instructions.md` | `copilot-instructions.md` | default |
+| OpenAI Codex | `~/.codex/instructions.md` | `codex-instructions.md` | default |
+| Claude Code | `~/.claude/CLAUDE.md` | `claude-instructions.md` | `--claude` / `--all` only |
+
+`~/.claude/CLAUDE.md` is global across every Claude Code project and is commonly
+hand-edited, so it is never written by a bare install. When `--claude` does
+overwrite a differing file, the previous version is kept as `CLAUDE.md.bak`.
+
+Bare `./install.sh` still targets only Copilot and Codex. `--all` means all three.
+The build123d profile has no Claude target and is skipped for `--claude` alone.
 
 The default installer also creates profile files:
 

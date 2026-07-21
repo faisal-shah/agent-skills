@@ -22,6 +22,7 @@ Codex CLI**.
 ```bash
 ./skills/memory/install.sh                               # user-level: ~/.copilot/skills + ~/.codex/skills
 ./skills/memory/install.sh --copilot
+./skills/memory/install.sh --claude # Claude Code only
 ./skills/memory/install.sh --codex
 ./skills/memory/install.sh --skills-dir .github/skills   # Copilot repo-local skill
 ./skills/memory/install.sh --skills-dir .agents/skills   # Codex repo-local skill
@@ -34,6 +35,7 @@ Codex CLI**.
 ```powershell
 .\skills\memory\install.ps1                                # user-level: ~/.copilot/skills + ~/.codex/skills
 .\skills\memory\install.ps1 -Copilot
+.\skills\memory\install.ps1 -Claude
 .\skills\memory\install.ps1 -Codex
 .\skills\memory\install.ps1 -SkillsDir .github\skills     # Copilot repo-local skill
 .\skills\memory\install.ps1 -SkillsDir .agents\skills     # Codex repo-local skill

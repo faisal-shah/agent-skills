@@ -30,6 +30,10 @@ Read the relevant skill's `AGENTS.md` before modifying that skill.
 
 1. **Each skill is self-contained.** A skill's `install.sh` copies only its own
    `SKILL.md` and `scripts/` — no cross-skill dependencies at runtime.
+   Installation is a **copy, not a symlink**: an edit here reaches no agent until
+   the installer runs again, and a stale installed copy is indistinguishable from
+   a current one. Re-run the installer after every change you expect an agent to
+   read.
 
 2. **SKILL.md is the artifact.** Everything else (README, AGENTS.md, examples,
    install.sh) exists to support developing and distributing the SKILL.md.
@@ -55,6 +59,11 @@ Read the relevant skill's `AGENTS.md` before modifying that skill.
 2. Add the skill to the table in the top-level `README.md`.
 
 3. Update the top-level `install.sh` to include the new skill.
+
+Installers accept `--copilot`, `--codex`, `--claude`, `--all`, or an explicit
+`--skills-dir`. Bare installs target Copilot and Codex only; Claude Code is
+opt-in, because `~/.claude/CLAUDE.md` is global and usually hand-edited. Keep
+`install.sh` and `install.ps1` in step — every flag exists in both.
 
 ## Cross-Skill References
 

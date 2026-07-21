@@ -4,11 +4,12 @@ set -euo pipefail
 SKILL_NAME="elmer-fem"
 
 usage() {
-    echo "Usage: $0 [--uninstall] [--copilot|--codex|--all] [--skills-dir DIR]"
+    echo "Usage: $0 [--uninstall] [--copilot|--codex|--claude|--all] [--skills-dir DIR]"
     echo ""
     echo "Install:    $0                            # defaults to ~/.copilot/skills and ~/.codex/skills"
     echo "Install:    $0 --copilot"
     echo "Install:    $0 --codex"
+    echo "Install:    $0 --claude                     # ~/.claude/skills"
     echo "Install:    $0 --skills-dir .github/skills"
     echo "Install:    $0 /path/to/skills"
     echo "Uninstall:  $0 --uninstall               # removes from both default user dirs"
@@ -20,6 +21,7 @@ usage() {
 UNINSTALL=false
 INSTALL_COPILOT=false
 INSTALL_CODEX=false
+INSTALL_CLAUDE=false
 SAW_TARGET_FLAG=false
 SKILLS_DIR=""
 
@@ -57,9 +59,14 @@ while [ "$#" -gt 0 ]; do
             INSTALL_CODEX=true
             SAW_TARGET_FLAG=true
             ;;
+        --claude)
+            INSTALL_CLAUDE=true
+            SAW_TARGET_FLAG=true
+            ;;
         --all)
             INSTALL_COPILOT=true
             INSTALL_CODEX=true
+            INSTALL_CLAUDE=true
             SAW_TARGET_FLAG=true
             ;;
         --skills-dir)
@@ -96,11 +103,12 @@ TARGET_DIRS=()
 if [ -n "$SKILLS_DIR" ]; then
     TARGET_DIRS=("$SKILLS_DIR")
 else
-    if [ "$INSTALL_COPILOT" = false ] && [ "$INSTALL_CODEX" = false ]; then
+    if [ "$SAW_TARGET_FLAG" = false ]; then
         TARGET_DIRS=("$HOME/.copilot/skills" "$HOME/.codex/skills")
     else
         [ "$INSTALL_COPILOT" = true ] && TARGET_DIRS+=("$HOME/.copilot/skills")
         [ "$INSTALL_CODEX" = true ] && TARGET_DIRS+=("$HOME/.codex/skills")
+        [ "$INSTALL_CLAUDE" = true ] && TARGET_DIRS+=("$HOME/.claude/skills")
     fi
 fi
 

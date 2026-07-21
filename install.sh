@@ -2,11 +2,12 @@
 set -euo pipefail
 
 usage() {
-    echo "Usage: $0 [--uninstall] [--copilot|--codex|--all] [--skills-dir DIR] [options]"
+    echo "Usage: $0 [--uninstall] [--copilot|--codex|--claude|--all] [--skills-dir DIR] [options]"
     echo ""
     echo "Install all:        $0"
     echo "Copilot only:       $0 --copilot"
     echo "Codex only:         $0 --codex"
+    echo "Claude Code only:   $0 --claude"
     echo "Custom skills dir:  $0 --skills-dir .github/skills"
     echo "Back-compat custom: $0 /path/to/skills"
     echo "Uninstall all:      $0 --uninstall"
@@ -26,6 +27,7 @@ usage() {
 UNINSTALL=false
 INSTALL_COPILOT=false
 INSTALL_CODEX=false
+INSTALL_CLAUDE=false
 SAW_TARGET_FLAG=false
 SKILLS_DIR=""
 NO_PROFILES=false
@@ -43,9 +45,14 @@ while [ "$#" -gt 0 ]; do
             INSTALL_CODEX=true
             SAW_TARGET_FLAG=true
             ;;
+        --claude)
+            INSTALL_CLAUDE=true
+            SAW_TARGET_FLAG=true
+            ;;
         --all)
             INSTALL_COPILOT=true
             INSTALL_CODEX=true
+            INSTALL_CLAUDE=true
             SAW_TARGET_FLAG=true
             ;;
         --skills-dir)
@@ -170,11 +177,12 @@ PASSTHRU=()
 if [ -n "$SKILLS_DIR" ]; then
     PASSTHRU=(--skills-dir "$SKILLS_DIR")
 else
-    if [ "$INSTALL_COPILOT" = false ] && [ "$INSTALL_CODEX" = false ]; then
-        PASSTHRU=(--all)
+    if [ "$SAW_TARGET_FLAG" = false ]; then
+        PASSTHRU=(--copilot --codex)
     else
         [ "$INSTALL_COPILOT" = true ] && PASSTHRU+=(--copilot)
         [ "$INSTALL_CODEX" = true ] && PASSTHRU+=(--codex)
+        [ "$INSTALL_CLAUDE" = true ] && PASSTHRU+=(--claude)
     fi
 fi
 
@@ -197,12 +205,18 @@ done
 if [ -z "$SKILLS_DIR" ] && [ "$UNINSTALL" = false ]; then
     install_copilot_instr=false
     install_codex_instr=false
+    install_claude_instr=false
 
-    if [ "$INSTALL_COPILOT" = true ] || { [ "$INSTALL_COPILOT" = false ] && [ "$INSTALL_CODEX" = false ]; }; then
+    if [ "$INSTALL_COPILOT" = true ] || [ "$SAW_TARGET_FLAG" = false ]; then
         install_copilot_instr=true
     fi
-    if [ "$INSTALL_CODEX" = true ] || { [ "$INSTALL_COPILOT" = false ] && [ "$INSTALL_CODEX" = false ]; }; then
+    if [ "$INSTALL_CODEX" = true ] || [ "$SAW_TARGET_FLAG" = false ]; then
         install_codex_instr=true
+    fi
+    # Never by default: ~/.claude/CLAUDE.md is hand-edited far more often than the
+    # other two, so it is only written when --claude is asked for explicitly.
+    if [ "$INSTALL_CLAUDE" = true ]; then
+        install_claude_instr=true
     fi
 
     if [ "$install_copilot_instr" = true ]; then
@@ -215,9 +229,20 @@ if [ -z "$SKILLS_DIR" ] && [ "$UNINSTALL" = false ]; then
         cp "$SCRIPT_DIR/codex-instructions.md" "$HOME/.codex/instructions.md"
         echo "Installed codex-instructions.md to $HOME/.codex/"
     fi
+    if [ "$install_claude_instr" = true ]; then
+        mkdir -p "$HOME/.claude"
+        claude_target="$HOME/.claude/CLAUDE.md"
+        if [ -f "$claude_target" ] && ! cmp -s "$SCRIPT_DIR/claude-instructions.md" "$claude_target"; then
+            cp "$claude_target" "$claude_target.bak"
+            echo "Backed up existing $claude_target to $claude_target.bak"
+        fi
+        cp "$SCRIPT_DIR/claude-instructions.md" "$claude_target"
+        echo "Installed claude-instructions.md to $claude_target"
+    fi
 fi
 
-if [ -z "$SKILLS_DIR" ] && [ "$NO_PROFILES" = false ]; then
+if [ -z "$SKILLS_DIR" ] && [ "$NO_PROFILES" = false ] &&
+   { [ "$SAW_TARGET_FLAG" = false ] || [ "$INSTALL_COPILOT" = true ] || [ "$INSTALL_CODEX" = true ]; }; then
     install_build123d_profile
 fi
 

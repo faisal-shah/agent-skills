@@ -25,6 +25,7 @@ python, and venv.
 ```bash
 ./skills/uv/install.sh                              # both Copilot and Codex
 ./skills/uv/install.sh --copilot                    # Copilot only
+./skills/uv/install.sh --claude                     # Claude Code only
 ./skills/uv/install.sh --skills-dir .github/skills
 ./skills/uv/install.sh --uninstall
 ```
@@ -34,6 +35,7 @@ python, and venv.
 ```powershell
 .\skills\uv\install.ps1
 .\skills\uv\install.ps1 -Copilot
+.\skills\uv\install.ps1 -Claude
 .\skills\uv\install.ps1 -SkillsDir C:\my\skills
 .\skills\uv\install.ps1 -Uninstall
 ```
