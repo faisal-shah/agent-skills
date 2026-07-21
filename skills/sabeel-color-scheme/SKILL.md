@@ -43,6 +43,14 @@ substitutes.
    - Keep true taupe `#A58D7A` for **captions, borders, dividers, shadows** —
      where softness is the point and contrast is not load-bearing.
 
+   **The test for muted-vs-secondary**, since it decides many sites at once: use
+   true taupe (`muted`) only for text you could delete without losing
+   information — placeholders, field hints, a legend key, a timestamp/metadata
+   line, a decorative dev label. Anything that *conveys content* — a value, a
+   status word, an empty-state message, a field label, a note someone typed — is
+   `secondary`. When unsure, choose `secondary`: at 2.7:1, true taupe is genuinely
+   hard to read, so the only safe home for it is text that carries no load.
+
 2. **Gold cannot be read as text or a signal at brand strength.** `#C6A15B` on
    ivory is ~2.1:1. Deepen it for any job where it must be *read*:
    - **Gold as text** (a label, a badge caption): `#795E2A` (~5.2:1).
@@ -54,7 +62,16 @@ substitutes.
 3. **Raspberry is comfortable.** `#83114F` on ivory is ~8.3:1, and ivory
    (`#F9F2E9`) on a raspberry fill is ~8.8:1. Headings, links and primary buttons
    are fine exactly as specified. Text on a raspberry surface should be **warm
-   ivory, never pure white** (`#F9F2E9`).
+   ivory, never pure white** (`#F9F2E9`); a *quieter* line on that fill (a
+   timestamp, a subtitle) can be a muted ivory-pink like `#D0A3B3` (~4:1 on the
+   plum) rather than full ivory.
+
+**These cuts are measured ON IVORY, and they do not transfer to the raspberry
+surface.** The gold cut in particular *inverts* there: on a dark plum fill, **true
+gold `#C6A15B` reads (~3.7:1) and the deepened `#795E2A` reads worse**, because the
+background is dark, not light. So gold-on-ivory → deepen it; gold-on-plum → leave
+it true. Whenever you put a palette colour on anything other than ivory, re-check
+the pair against that background — the ivory table below is not a general answer.
 
 ## Single light theme — there is NO dark mode
 
@@ -76,7 +93,11 @@ as the only exception. Follow the same discipline — it is what made the Option
 refresh a one-file change. Names describe **role, not appearance**
 (`text.muted`, never `text.grey`).
 
-The app-level light token set (derived from the five brand colours):
+**What is authoritative here is the values, the roles, and the accessibility
+cuts** (above and below). The token *tree* is not — its shape is an app
+implementation choice, so the block below is **one working derivation**, not a
+spec to copy verbatim. A given app adds, drops or renames tokens to fit what it
+actually renders (this is how it should be — see "per-app extensions").
 
 ```
 bg.canvas       #F6EBDD   app background
@@ -103,22 +124,31 @@ accent.onAccent #F9F2E9
 feedback.danger   #A32218   (~6.4:1 on ivory)
 feedback.success  #4E7A43   sage darkened to read (~4.3:1)
 feedback.warning  #977535   gold deepened to read (~3.6:1)
-
-priority.none   #A58D7A
-priority.low    #4E7A43
-priority.medium #B8860B
-priority.high   #C2611F
-priority.urgent #A32218
 ```
 
-**Priority and feedback are a FUNCTIONAL scale, not brand colour.** Red/amber/
-green must read as urgency; do not replace them with brand hues. They are tuned
-to sit beside the palette (and now that raspberry is a plum, the reds no longer
-risk reading as it) and to stay mutually distinguishable.
+**Feedback colours are a FUNCTIONAL scale, not brand colour.** Red/amber/green
+must read as urgency; do not replace them with brand hues. They are tuned to sit
+beside the palette (and now that raspberry is a plum, the reds no longer risk
+reading as it) and to stay mutually distinguishable.
 
-If a surface needs gold or sage as a *deliberate decorative accent* (some do more
-than the kanban app), add explicit tokens rather than hardcoding — e.g.
-`accent.gold #C6A15B`, `accent.goldText #795E2A`, `accent.sage #A8B89A`.
+### Per-app extensions (do not push these back into this skill)
+
+The token tree above stops at what is common. Anything an app needs beyond it is
+a **product decision that lives in that app**, not a brand fact — keeping it out
+of here is what stops this shared skill from drifting into one app's
+implementation. Two kinds come up:
+
+- **A functional category/priority scale** (e.g. a kanban board's
+  none/low/medium/high/urgent). Same rule as feedback — a functional scale, not
+  brand colour, tuned to stay mutually distinct and legible on ivory — but the
+  *scale itself* belongs to the app that has that feature. An app without the
+  feature has no such tokens.
+- **Decorative gold or sage accents.** Some surfaces use gold and sage as
+  deliberate accents more than others. Add explicit tokens rather than
+  hardcoding — e.g. `accent.gold #C6A15B` (decorative only), `accent.goldText
+  #795E2A` (gold as text), `accent.sage #A8B89A`, and for a quiet line on the
+  raspberry fill, `accent.onAccentMuted #D0A3B3`. Note the split: gold-as-text
+  and gold-as-decoration are **different tokens**, because of the contrast cut.
 
 ## Fixed swatch sets (labels, categories)
 
