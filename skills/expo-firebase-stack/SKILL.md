@@ -173,6 +173,31 @@ The WebChannel stream dies silently under RN networking. Use
 `experimentalForceLongPolling` on native, `experimentalAutoDetectLongPolling` on
 web.
 
+### An optional callable field arrives as `null`, not missing
+A client sends `{ classId: someState ?? undefined }` for "nothing selected". The
+server guards with `if (d.classId !== undefined)` and rejects it as a bad value.
+
+**The callable client serializes an explicitly-`undefined` property as `null`.**
+The key is an own enumerable property, so it is encoded rather than dropped the
+way `JSON.stringify` would drop it — and the wire format then cannot distinguish
+"absent" from "explicitly nothing".
+
+So on the server, **treat `null` as absent for every optional field**:
+
+```ts
+if (d.classId !== undefined && d.classId !== null) { /* validate */ }
+```
+
+and on the client, omit the key rather than setting it undefined:
+
+```ts
+...(classId ? { classId } : {})
+```
+
+This bites hardest on the empty-state path — the first record created, before
+anything exists to reference — which is exactly the path a demo or a fresh
+install takes and a happy-path test does not.
+
 ### A callable returns "internal", and the browser blames CORS
 Three symptoms, one cause. The functions emulator **accepts connections on its
 port before it has registered any function**. Until registration finishes, every
