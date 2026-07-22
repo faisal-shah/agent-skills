@@ -131,6 +131,32 @@ An auth-create trigger that rejects an out-of-domain account should `deleteUser`
 it. Writing `status: 'rejected'` leaves junk that is indistinguishable from real
 pending users.
 
+### "Disable client sign-up" also blocks the FIRST federated sign-in
+Auth → Settings → User actions → **Enable create (sign-up)** maps to
+`client.permissions.disabledUserSignup`. It is easy to read as "stop strangers
+self-registering with email/password". It is not that: it blocks **every**
+client-side account creation, and a federated user's first sign-in *is* a
+creation. Google sign-in then fails with **`auth/admin-restricted-operation`**
+for legitimate users who have never signed in before, while existing users are
+unaffected — so it looks like a broken new-user path rather than a setting.
+
+It fails **before** any auth-create trigger runs: no user is created and the
+trigger logs nothing. That pair — zero users AND zero trigger invocations —
+is how you tell this apart from a trigger that deleted the account.
+
+So **an app where a population self-onboards through an IdP cannot use this
+setting.** Enforce it in the auth-create trigger instead, which needs a way to
+tell the populations apart. A discriminator that works, if one population is
+Admin-SDK provisioned: create those users **without a password**, and they have
+**no provider at all** when the trigger fires. Anything already carrying
+`password` at creation therefore came from the client SDK. (`onCreate` does not
+fire again when a user later sets a password, so real accounts are never
+mis-read.)
+
+Blocking functions (`beforeUserCreated`) are the better mechanism — they reject
+before the account exists rather than deleting it moments later — but they
+require upgrading the project to Identity Platform.
+
 ## Firebase emulators
 
 ### Writes succeed, triggers log success, client says the doc does not exist
@@ -767,6 +793,32 @@ gets the empty state, so an "already exists?" guard says no and creates another.
 
 Wait for the list to *render* before deciding something is absent, and verify
 against the database directly rather than the UI.
+
+### A check that asserts on ABSENCE passes when the query is broken
+The most dangerous test shape in this stack: fetch a list, assert the bad thing
+is not in it.
+
+Every failure of the fetch — wrong endpoint, wrong field name, an error body, an
+auth failure — produces *no items*, which is exactly what "the bad thing is gone"
+looks like. The check then passes forever without ever exercising the mechanism.
+
+A real example: verifying that an auth-create trigger deleted a self-registered
+account, by polling the Auth emulator's
+`/emulator/v1/projects/<id>/accounts` and asserting the email was absent. That
+endpoint is **DELETE-only**; the GET returned
+`{"message":"Method GET not allowed"}`, so `userInfo` was `undefined`, the array
+was empty, and the check passed unconditionally — including against a build with
+the protection deliberately removed.
+
+Two habits that catch it:
+
+- **Assert on a positive fact instead.** Don't ask "is the account absent from
+  this list" — *use the credential* and require the specific error
+  (`EMAIL_NOT_FOUND`). A wrong endpoint then fails the check instead of passing
+  it, and the error string is proof the request was understood.
+- **Mutate the thing under test and watch the check go red.** This is the only
+  way to distinguish a passing check from a vacuous one, and it costs one run.
+  Any assertion of the form "X is not present" is worth this treatment.
 
 ### A test fails intermittently on a race it created itself
 Waiting for condition A and then asserting on condition B in the same tick. A
