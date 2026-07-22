@@ -261,9 +261,16 @@ collection-group scope by default. It goes in `fieldOverrides`, not `indexes`:
   "indexes": [{ "arrayConfig": "CONTAINS", "queryScope": "COLLECTION_GROUP" }] }
 ```
 
-**"Deployed" is not "ready."** `firebase firestore:indexes` lists definitions but
-no build state, and an index still `CREATING` errors on use exactly like a
-missing one — ~4 minutes even on an empty database. Read the true state:
+**"Deployed" is not "ready," and neither is `READY`.** `firebase
+firestore:indexes` lists definitions but no build state, and an index still
+`CREATING` errors on use exactly like a missing one — ~4 minutes even on an empty
+database. Worse, `gcloud firestore indexes composite list` can report **`READY`
+for every index while queries still fail** with "that index is currently
+building" for another minute or two (seen on the one collection that had
+documents in it). **Poll the query itself, not the index state** — the query is
+the thing you care about, and it is the only signal that cannot be early.
+
+Read the true state:
 
 ```sh
 curl -s -H "Authorization: Bearer $(gcloud auth application-default print-access-token)" \
