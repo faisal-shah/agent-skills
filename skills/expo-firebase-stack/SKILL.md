@@ -1,6 +1,6 @@
 ---
 name: expo-firebase-stack
-description: Diagnose and avoid the recurring traps in Expo + react-native-web + Firebase JS SDK apps — Google sign-in failing only inside chat-app browsers, DEVELOPER_ERROR on Android, emulator data that "does not exist", stale Metro bundles, native debug builds serving stale JS or an unset EXPO_PUBLIC flag, screenshotting a stale installed build, unauthenticated screenshots that verify nothing, unthemeable react-native-web controls, push notifications that deliver nothing while every visible part works, and live-query races that make seeds and tests silently do nothing. Use when building, debugging, deploying, or verifying an Expo app that shares one codebase across Android and web via react-native-web with Firebase for auth/Firestore/Functions.
+description: Diagnose and avoid the recurring traps in Expo + react-native-web + Firebase JS SDK apps — Google sign-in failing only inside chat-app browsers, DEVELOPER_ERROR on Android, emulator data that "does not exist", stale Metro bundles, config plugins that silently do nothing in the bare workflow, module-resolution errors naming files that exist, native debug builds serving stale JS or an unset EXPO_PUBLIC flag, screenshotting a stale installed build, unauthenticated screenshots that verify nothing, unthemeable react-native-web controls, push notifications that deliver nothing while every visible part works, and live-query races that make seeds and tests silently do nothing. Use when building, debugging, deploying, or verifying an Expo app that shares one codebase across Android and web via react-native-web with Firebase for auth/Firestore/Functions.
 ---
 
 # Expo + react-native-web + Firebase: the traps
@@ -265,6 +265,52 @@ Whoever holds 8081 serves your app. Add a preflight that refuses to start when
 correctly, but surprisingly. E2E flows needing dev-only affordances must drive
 `expo start`, not the export; assert the *absence* separately so the safety
 property is tested rather than assumed.
+
+### A config plugin you added does nothing (bare workflow)
+
+You add a plugin to `app.json`, rebuild, and the permissions, services or
+entitlements it is documented to add are simply absent from the app.
+
+**Config plugins only run during `prebuild`.** In the bare workflow — a
+committed `android/` or `ios/` directory — `expo run:android` does NOT re-run
+prebuild, so the plugin never touches the native manifest. Nothing warns you;
+the build succeeds.
+
+This is nastier than it sounds, because a half-configured native module often
+*half* works. Background audio, for example, kept playing on an emulator with no
+foreground service and no permissions at all — Android is lenient there — so
+every local check passed while the shipped app would have been killed under
+memory pressure on a real device.
+
+```bash
+npx expo prebuild --platform android --no-install
+git diff android/app/src/main/AndroidManifest.xml   # confirm ONLY what you expected
+```
+
+Read that diff rather than trusting it. Plugins add things you did not ask for:
+one added `RECORD_AUDIO` to a playback-only app because its `recordAudio` option
+defaults to true, which is both a scary Play-listing permission and a review
+question you do not want to answer.
+
+Verify against the INSTALLED package, not the source manifest — the merged one is
+what ships:
+
+```bash
+adb shell dumpsys package <applicationId> | grep -oE "android.permission.[A-Z_]+" | sort -u
+adb shell dumpsys activity services <applicationId> | grep -E "isForeground|foregroundServiceType"
+```
+
+### Metro insists a module does not exist, and the file is right there
+
+`The module could not be resolved because none of these files exist`, listing a
+path you can `ls` and see.
+
+Metro cached its resolution before the package was installed. Installing a
+dependency while Metro is running does not invalidate that cache, and a native
+rebuild does not either — the packager is a separate process with its own state.
+
+Restart Metro with `--clear`. Worth suspecting **any** time a module resolution
+error names a file that demonstrably exists.
 
 ### Stale config baked into a bundle
 `EXPO_PUBLIC_*` is **inlined at build time**. Build with `--clear` when config
