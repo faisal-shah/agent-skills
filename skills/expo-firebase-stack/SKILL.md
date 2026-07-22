@@ -391,6 +391,41 @@ A tablet deserves the desktop layout; a narrow window deserves the phone one.
 Treat drag-and-drop as a *capability* layered on the wide layout, not a platform
 feature.
 
+### The desktop view is a phone screen stretched sideways
+A phone-first app opened on a laptop looks amateurish: full-width primary buttons
+become bars all the way across the window, list rows are wide mostly-empty
+strips, and a single capped column strands the content in whitespace. Nothing is
+"broken" — it is just the phone layout with the width turned up, and it reads as
+unfinished on the monitors most desk users have.
+
+The shapes that are right on a phone are wrong on a desktop, so make them
+**responsive to width**, not fixed:
+
+- **Buttons.** Full-width is a good primary-action shape on a phone; on a wide
+  screen a standalone button should size to its label. Bake this into the button
+  primitive (`alignSelf: isWide ? 'flex-start' : 'stretch'`), so every screen is
+  fixed at once — a button inside a row is already content-width, so only the
+  stretched column-child case changes.
+- **Reading columns vs. grids are different maximums.** Text and forms want a
+  *narrow* column (~640) so lines stay readable and fields aren't stretched;
+  card LISTS want a *wide* column and a **grid** that flows into as many columns
+  as fit (`flexWrap` + `flexBasis` ~250px, capped so a lone last card doesn't
+  stretch), collapsing to one column on a phone. A single `maxWidth` for
+  "content" cannot serve both — give the screen wrapper a `width` variant
+  (`read` / `list` / `full`).
+- **Native form controls size to their widest option, not the current one.** A
+  `<select>` reserves collapsed width for its longest `<option>`; a short current
+  value then sits in a box sized for the longest one. `field-sizing: content`
+  makes it hug the selection (progressive enhancement — it no-ops on older
+  engines).
+- A persistent nav bar changes what each screen needs: a tab-root screen reached
+  only from the bar is never pushed, so its per-screen Back button is dead and
+  sits stranded — drop it.
+
+You cannot reason your way to "it looks designed" — **open it at a real desktop
+width** (1400–1600 in Playwright) *and* at a phone width, and look. The 840px
+column that looks fine in a review is the tell.
+
 ## Observability
 
 ### Test runs pollute the production error project
