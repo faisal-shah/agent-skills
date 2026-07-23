@@ -575,6 +575,34 @@ host a sandbox cannot reach — enough to stall a sign-in flow and fail a suite.
 It rewrites native files and metro config and writes a `sentry.properties`
 containing a real auth token. Wire the SDK by hand.
 
+### Web source maps: inject debug ids, upload, then STRIP before deploy
+`expo export` emits no source maps unless you pass `--source-maps`, so production
+stack traces are minified by default. The robust upload path uses **debug ids**
+(no release/version coordination): `sentry-cli sourcemaps inject <dist>` stamps a
+matching id into both the JS and the maps, then `sentry-cli sourcemaps upload`.
+Do it as the hosting predeploy so every deploy is covered.
+
+Two traps:
+- **Delete the `.map` files from the deploy dir after uploading.** Otherwise
+  Firebase Hosting serves your source publicly. The shipped JS keeps its debug
+  id, so events still symbolicate against the maps in Sentry.
+- **A `.map` URL on the live SPA returns `200`, not `404`** — the `** →
+  /index.html` rewrite catches the missing file and serves HTML. Verify maps are
+  gone by the **content-type** (`text/html` = fine), never the status code. The
+  same rewrite hides any missing-asset 404 behind a 200.
+
+An **organization** auth token (`sntrys_…`, org-scoped) uploads to every project
+in the org — reuse one across apps rather than minting per project. Point
+`sentry-cli` at it with `SENTRY_PROPERTIES=<gitignored sentry.properties>` and
+override `--project` per surface; the token never has to pass through your shell.
+
+### `@sentry/react-native` source maps need a release build AND the Gradle plugin
+Native upload only runs on `assembleRelease`, and only if the Sentry Gradle
+plugin is applied — which the config plugin does at `prebuild`. In the bare
+workflow (committed `android/`, no prebuild) a `sentry.properties` alone uploads
+nothing. Runtime error *reporting* still works; only symbolication waits. This is
+a first-release concern, not a first-wire one.
+
 ### Serverless events never arrive
 The instance can freeze the moment the handler resolves. `await Sentry.flush(...)`
 before returning. Exclude expected domain errors (`HttpsError`) or real defects
