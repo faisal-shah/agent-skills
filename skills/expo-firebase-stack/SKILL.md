@@ -336,6 +336,58 @@ append-only event log (replaying that would double entries).
 That AsyncStorage survives the kill is already proven by auth staying signed in
 across restarts — it is the same primitive.
 
+## Cloud Storage and long media
+
+Uploading files, streaming long audio/video, and reading media metadata each
+hide a trap that only shows on device.
+
+### Resumable-upload progress can exceed 100%
+`uploadBytesResumable(...).on('state_changed', s => s.bytesTransferred / s.totalBytes)`
+reads past `1.0` on React Native — ~140% seen — because the SDK re-sends a chunk
+on a network hiccup and `bytesTransferred` climbs past `totalBytes`. The upload
+itself is fine; only the number lies. **Clamp it:
+`Math.min(1, bytesTransferred / totalBytes)`.** Web does not show this, so it
+passes review on web and surfaces only when someone watches the bar on a phone.
+
+### Uploading a picked file on native: URI → Blob, not a File
+A document/image picker on native returns a `file://` (or `content://`) **URI**;
+the web `<input type=file>` hands you a `File`, which already IS a Blob. The
+Storage SDK wants a Blob, so the two platforms cannot share the picker code —
+put it behind a `.web` seam. On native, bridge the URI:
+`const blob = await (await fetch(uri)).blob()` — React Native's Blob layer
+resolves a local URI. If the picker returns a typeless blob, carry its declared
+mime type or the upload records `application/octet-stream`:
+`blob.slice(0, blob.size, mimeType)`.
+
+### Reading media duration is itself a platform seam
+To show a duration / draw a scrubber you need the media's length. Web decodes it
+from an `<audio>`/`<video>` element plus `URL.createObjectURL(blob)`; **native
+has neither of those APIs.** Use the audio library instead
+(`createAudioPlayer({ uri })` + a `playbackStatusUpdate` listener reading
+`status.duration`), which reports nothing until the media loads — so resolve on
+the first status carrying a finite, positive duration, with a timeout fallback
+that reads `player.duration` once more before giving up. Resolve `null` on
+failure, never throw: a weird file must not block an otherwise-fine upload.
+
+**The trap is what a null duration does downstream.** If a player derives its
+scrubber range, remaining-time and listened-% from a STORED duration, a `null`
+one does not just hide a label — it breaks the transport (0-length scrubber,
+`-0:00`, a stuck progress bar) while the audio still plays. So capture duration
+at UPLOAD on *every* platform and store it, rather than leaving it null on the
+platform whose browser API is missing. Verify by PLAYING a file uploaded from
+each platform — not by reading the list label, which looks fine either way.
+
+### Long media: don't proxy through a function, don't hand out non-expiring URLs
+Two independent rules that both bite only in production:
+- **Streaming bytes through a callable dies on the function timeout.** A
+  multi-hour file outlives the max function runtime, so playback stalls partway.
+  Stream from Storage directly; never proxy the bytes through a function.
+- **`getDownloadURL()` mints a token that NEVER expires.** If a leaked link must
+  eventually stop working, that token is the one thing that rules it out. Mint a
+  short-TTL **signed URL** from a callable that has already checked authorization,
+  and re-mint it before expiry. Note an expired GCS signed URL returns **HTTP 400
+  `ExpiredToken`, not 403** — a retry handler keyed on 403 will sail right past it.
+
 ## Expo / Metro / builds
 
 ### A UI change appears to have no effect
