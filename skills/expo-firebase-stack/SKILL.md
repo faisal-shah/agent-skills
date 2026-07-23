@@ -302,6 +302,40 @@ curl -s -H "Authorization: Bearer $(gcloud auth application-default print-access
   "https://firestore.googleapis.com/v1/projects/<project>/databases/(default)/collectionGroups/<coll>/fields/<field>"
 ```
 
+## Offline persistence
+
+### The JS SDK has NO persistent cache on React Native
+`persistentLocalCache` (and the older `enableIndexedDbPersistence`) is built on
+IndexedDB, which React Native does not have — so on native the Firebase **JS
+SDK** falls back to a MEMORY cache. This is the same reason auth must be wired to
+AsyncStorage with `getReactNativePersistence`: no web storage primitives exist.
+(`@react-native-firebase` has native persistence, but it is a different library —
+if you are on the JS SDK for web support, you do not have it.)
+
+What that means for offline writes:
+- **Within a running process**, the memory cache still queues writes made offline
+  and flushes them on reconnect. "Do it offline, stay open, reconnect" works.
+- **Across an app kill**, the memory cache is gone. A write queued offline and
+  then force-killed before it synced is **lost** — and the optimistic local state
+  is lost too, so the user reopens to find their action silently reverted. Web
+  does not have this problem (IndexedDB persists across a page close).
+
+Verify, do not assume, and the test is specific: mark the write offline, **force-
+stop the app**, reopen online, and check the server. If the write is gone, you
+need a backstop. (Confirmed on a real AVD: 0 rows on the server after the kill.)
+
+The fix is NOT a bespoke sync engine. It is a thin **AsyncStorage outbox over the
+same direct write**, native-only (a no-op on web where the cache suffices):
+record the intent durably, fire the write, and forget it only when the write's
+promise resolves (server ack — offline it never resolves, so the record
+survives). On launch, replay whatever is left, scoped to the signed-in uid. Keep
+it idempotent with a **deterministic document id**, so a replay overwrites rather
+than duplicates — which also means you outbox the current-STATE doc, not an
+append-only event log (replaying that would double entries).
+
+That AsyncStorage survives the kill is already proven by auth staying signed in
+across restarts — it is the same primitive.
+
 ## Expo / Metro / builds
 
 ### A UI change appears to have no effect
