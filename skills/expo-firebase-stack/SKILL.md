@@ -529,6 +529,20 @@ A tablet deserves the desktop layout; a narrow window deserves the phone one.
 Treat drag-and-drop as a *capability* layered on the wide layout, not a platform
 feature.
 
+### A reorderable list wants a drag handle, not up/down buttons
+When the *order* of a list is user-controlled (board columns, a sortable set of
+options), reorder it by **dragging a handle**, not with per-row ↑/↓ buttons. The
+buttons are one tap per position, read as unfinished, and don't scale. This stack
+ships **no gesture library** (no reanimated / gesture-handler — a deliberate
+omission), so hand-roll the drag rather than pulling one in: an HTML5-drag
+`.web.tsx` (`draggable` + `onDragStart/onDragOver/onDrop`, reusing the board's
+card-drag pattern) and a PanResponder `.tsx` sibling, both with a
+`drag-indicator` handle. A short list (a handful of rows, fixed row height, no
+nested scroll) is very hand-rollable; measure one row, translate the dragged one,
+swap indices past the half-row line, commit on release. Adding
+reanimated+gesture-handler for this would be a major architectural change — don't,
+without a deliberate decision.
+
 ### The desktop view is a phone screen stretched sideways
 A phone-first app opened on a laptop looks amateurish: full-width primary buttons
 become bars all the way across the window, list rows are wide mostly-empty
