@@ -557,7 +557,9 @@ The shapes that are right on a phone are wrong on a desktop, so make them
   screen a standalone button should size to its label. Bake this into the button
   primitive (`alignSelf: isWide ? 'flex-start' : 'stretch'`), so every screen is
   fixed at once — a button inside a row is already content-width, so only the
-  stretched column-child case changes.
+  stretched column-child case changes. Keep a `block` escape hatch: the rare
+  single-action screen (sign-in) whose one primary button should still span its
+  container looks stranded when that button shrinks to its label.
 - **Reading columns vs. grids are different maximums.** Text and forms want a
   *narrow* column (~640) so lines stay readable and fields aren't stretched;
   card LISTS want a *wide* column and a **grid** that flows into as many columns
