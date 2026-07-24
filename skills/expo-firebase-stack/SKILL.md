@@ -597,6 +597,36 @@ Use a platform seam: `<select>` on web (keyboard nav, type-ahead and scrolling
 for free), a height-bounded modal list on native. Rendering one button per option
 is the trap — fine with three options, fills the screen with twelve.
 
+### A hand-rolled slider/drag works on web but freezes on device
+A custom `PanResponder` drag bar (slider, scrubber) inside a `ScrollView` is
+fine on web — the pointer maps to a mouse and nothing competes for it — and
+fails on device: a real finger-drag always has a vertical component, the native
+ScrollView claims the gesture, the pan terminates, and the thumb freezes while
+the finger keeps moving. `onPanResponderTerminationRequest: () => false` does not
+reliably override the *native* ScrollView on Android. Stop hand-rolling the
+gesture and use the native **`@react-native-community/slider`**, which consumes
+touch at the platform level. Two things that bite when you switch:
+- It has **no web build** (no `browser` field, no `.web.js`) — importing it into
+  a shared component breaks the web bundle. Add a `Scrubber.web.tsx` seam that
+  keeps the PanResponder version (which worked on web) or an `<input
+  type="range">`.
+- After a programmatic seek, the player keeps emitting the OLD position for a
+  beat; bind the slider to the shown position and ignore progress ticks until the
+  player reports a value near the seek target, or the thumb snaps backwards the
+  instant you release it.
+
+### You cannot verify a drag gesture with `adb` — it can't simulate an RN pan
+`adb input swipe` and even discrete `adb input motionevent DOWN/MOVE/UP` do NOT
+produce a faithful continuous React Native pan: `gestureState.dx` stays near zero
+or oscillates instead of accumulating, so a drag "test" lands nowhere near the
+target and looks broken even when the code is correct (and looks fine even when
+it isn't). Do not trust adb to prove a JS pan works or fails. A *native*
+component (the slider above) does respond to `adb input swipe` because it handles
+raw touch — which is one more reason to prefer it: it's the only version you can
+actually drive headlessly. For a JS PanResponder, the ground truth is a real
+device (or logging the `dx`/grant/terminate sequence from logcat to see what the
+responder actually received).
+
 ### Emoji arrows ignore text colour
 `◀`/`▶` render as colour glyphs. Use text-presentation characters (`‹`, `›`, `▾`)
 or draw them.
