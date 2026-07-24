@@ -388,6 +388,31 @@ Two independent rules that both bite only in production:
   and re-mint it before expiry. Note an expired GCS signed URL returns **HTTP 400
   `ExpiredToken`, not 403** — a retry handler keyed on 403 will sail right past it.
 
+### Background audio: there must be AT MOST ONE player, and stop it before removing
+Once you enable background playback (`setAudioModeAsync({ shouldPlayInBackground:
+true })` + the foreground-service permissions + POST_NOTIFICATIONS for lock-screen
+controls), the audio player is kept alive by a foreground service — and two
+things that are harmless in the foreground become orphaned-audio bugs:
+- **`player.remove()` does NOT stop a playing background player.** Removing the
+  object releases your handle, but a foreground-service player keeps producing
+  sound. Teardown must **`pause()` first** (and drop the lock-screen session,
+  e.g. `setActiveForLockScreen(false)`) *before* removing. A screen that unmounts
+  without pausing leaves audio playing with no UI to stop it — and swiping the app
+  away doesn't kill it either.
+- **Nothing stops you creating a second player over the first.** If the player
+  lives in a screen and navigation mounts the next screen before the previous
+  one's cleanup runs (or a cleanup is skipped), you get two streams at once, and
+  neither the lock-screen controls nor force-quitting can stop the orphan. Keep a
+  **module-level single-player handle**: creating a player tears its predecessor
+  down first, so at most one stream can ever exist. That guard is also the safety
+  net for the missed-cleanup case the per-screen `useEffect` return can't cover.
+
+Emulators can't prove this — audio focus is held at the module level regardless,
+and a signed URL that points at `127.0.0.1` won't even stream to an AVD. Verify
+the *lifecycle* instead: temporary `console.log`s in create/unload, driven via
+adb and read from logcat, show teardown-then-recreate without a second live
+player; the audible behaviour is a real-device check.
+
 ## Expo / Metro / builds
 
 ### A UI change appears to have no effect
