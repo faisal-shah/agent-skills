@@ -874,7 +874,9 @@ Fix: use Firestore's native protection (below) and let any export be what it
 actually is — a reporting artifact.
 
 ### Two native layers, with very different jobs
-Both are Google-managed settings, no code to maintain, and they compose:
+Both are Google-managed settings, no code to maintain, and they compose. Note
+that **none of this needs a client change** — the whole plan is database settings
+plus one backend job, so it never gates on shipping an app release:
 
 | Layer | Window | Job |
 |---|---|---|
@@ -906,13 +908,34 @@ explicitly excluded** and require billing enabled. For a small dataset the bill
 is a fraction of a cent, but it is not literally zero — expect a new line item,
 and do not assume "we're on the free tier" means these are free.
 
-### A restore creates a NEW database — it never overwrites in place
+### A restore creates a NEW database — and you cannot reuse the old id
 `firebase firestore:databases:restore --database <new-id> --backup <name>`
-restores into a *different* database; the same is true of a PITR recovery. So
-"restore" is really restore → verify → repoint your app. Good news (a botched
-restore cannot destroy the surviving data), but it means the runbook needs a
-repointing step, and anything that hardcodes the default database id needs to be
-configurable *before* you are in an incident.
+restores into a *different* database, and the docs are explicit: **"You cannot
+use a database ID that is already in use."** There is no restore-in-place. Same
+for a PITR recovery.
+
+Two consequences people discover mid-incident:
+
+- **Backups do not contain your security rules, IAM, or TTL policies.** A
+  restored database comes up needing all of them reapplied. If rules live in the
+  repo and deploy from it (they should), that is one command — otherwise it is a
+  scramble at the worst possible time.
+- **Do NOT plan to "just repoint the app" — that instinct is wrong for a mobile
+  stack.** Repointing the web is a redeploy; repointing an installed Android app
+  is a new build that **every user has to install**. Your recovery time becomes
+  an app-store round trip.
+
+So for a stack with installed clients, prefer bringing the data back to the id
+the clients already use: restore to a scratch database → verify → **managed
+export it → import into the original database id**, then delete the scratch one.
+Clients never notice. Note that import **merges by document id**: it recreates
+what was deleted, but it does not remove junk that was added, so it fixes a
+deletion cleanly and a corruption only partially.
+
+Rehearse this once against a throwaway project. A restore path nobody has walked
+is a hope, not a plan — and the step that surprises people is not the restore, it
+is discovering the destination id can never be the one their app is configured
+for.
 
 ### Retention is worthless if nobody notices in time
 The failure that beats a 14-week window is specific: **data breaks just before a
