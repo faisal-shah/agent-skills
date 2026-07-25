@@ -1,6 +1,6 @@
 ---
 name: expo-firebase-stack
-description: Diagnose and avoid the recurring traps in Expo + react-native-web + Firebase JS SDK apps — Google sign-in failing only inside chat-app browsers, DEVELOPER_ERROR on Android, emulator data that "does not exist", stale Metro bundles, config plugins that silently do nothing in the bare workflow, module-resolution errors naming files that exist, native debug builds serving stale JS or an unset EXPO_PUBLIC flag, screenshotting a stale installed build, unauthenticated screenshots that verify nothing, unthemeable react-native-web controls, push notifications that deliver nothing while every visible part works, and live-query races that make seeds and tests silently do nothing. Use when building, debugging, deploying, or verifying an Expo app that shares one codebase across Android and web via react-native-web with Firebase for auth/Firestore/Functions.
+description: Diagnose and avoid the recurring traps in Expo + react-native-web + Firebase JS SDK apps — Google sign-in failing only inside chat-app browsers, DEVELOPER_ERROR on Android, emulator data that "does not exist", stale Metro bundles, config plugins that silently do nothing in the bare workflow, module-resolution errors naming files that exist, native debug builds serving stale JS or an unset EXPO_PUBLIC flag, screenshotting a stale installed build, unauthenticated screenshots that verify nothing, unthemeable react-native-web controls, push notifications that deliver nothing while every visible part works, live-query races that make seeds and tests silently do nothing, and nightly "backups" that are really mirrors and protect against nothing. Use when building, debugging, deploying, or verifying an Expo app that shares one codebase across Android and web via react-native-web with Firebase for auth/Firestore/Functions.
 ---
 
 # Expo + react-native-web + Firebase: the traps
@@ -850,6 +850,107 @@ Clear the input immediately and show a busy state; Firestore applies the write
 locally, so the item appears on its own. Restore the text if the write actually
 fails — losing what someone typed is worse than a moment of uncertainty. Disable
 while in flight so repeated taps cannot post duplicates.
+
+## Backups and disaster recovery
+
+### A nightly export is a mirror, not a backup
+The usual first attempt — a scheduled function that rewrites a Sheet/CSV/bucket
+copy of the data every night — protects against nothing. It **clears and
+rewrites**, so a deletion is faithfully copied over the only other copy you have,
+typically within a day. There is no history to roll back to.
+
+Three questions expose the difference:
+
+- **Does it keep old versions?** Overwriting one destination = one restore point,
+  and it is always the *current* (possibly broken) state.
+- **Does it cover everything?** Exports built for reporting usually filter —
+  approved/published/non-draft rows only — and cover one collection. A restore
+  needs users, roles, config and the in-flight records too.
+- **Would it survive the thing you fear?** An accidental mass delete, a bad
+  deploy, a compromised admin account. If the answer is "the export would copy
+  it," it is a convenience feature, not a backup.
+
+Fix: use Firestore's native protection (below) and let any export be what it
+actually is — a reporting artifact.
+
+### Two native layers, with very different jobs
+Both are Google-managed settings, no code to maintain, and they compose:
+
+| Layer | Window | Job |
+|---|---|---|
+| **PITR** | rolling **7 days** | rewind to any microsecond — "someone deleted it this morning" |
+| **Scheduled backups** | **14 weeks maximum** | "we noticed in September that something broke in July" |
+
+```sh
+firebase firestore:databases:update "(default)" --point-in-time-recovery ENABLED
+firebase firestore:backups:schedules:create \
+  --recurrence WEEKLY --day-of-week MONDAY --retention 98d
+# inspect
+firebase firestore:databases:get "(default)"
+firebase firestore:backups:schedules:list
+firebase firestore:backups:list
+```
+
+14 weeks (98 d) is the ceiling — Firestore will not retain a backup longer.
+Beyond that you must export to Cloud Storage and manage retention yourself. Also
+consider `--delete-protection ENABLED`, which blocks deletion of the whole
+database.
+
+Weekly-at-max-retention pairs better with PITR than daily does: PITR already
+covers the recent window at far finer granularity, so spend the backup schedule
+on *reach* rather than duplicating the last seven days.
+
+### PITR and backup data are excluded from the free tier
+Firestore's free tier includes stored data; **PITR data and backup data are
+explicitly excluded** and require billing enabled. For a small dataset the bill
+is a fraction of a cent, but it is not literally zero — expect a new line item,
+and do not assume "we're on the free tier" means these are free.
+
+### A restore creates a NEW database — it never overwrites in place
+`firebase firestore:databases:restore --database <new-id> --backup <name>`
+restores into a *different* database; the same is true of a PITR recovery. So
+"restore" is really restore → verify → repoint your app. Good news (a botched
+restore cannot destroy the surviving data), but it means the runbook needs a
+repointing step, and anything that hardcodes the default database id needs to be
+configurable *before* you are in an incident.
+
+### Retention is worthless if nobody notices in time
+The failure that beats a 14-week window is specific: **data breaks just before a
+quiet period** — a holiday, a seasonal lull — so every subsequent backup captures
+the already-broken state, and by the time someone looks, the last good backup has
+aged out. Extending retention is the expensive lever. Noticing sooner is the
+cheap one: detect within days and even a modest window is generous.
+
+A small daily canary function covers it:
+
+- **Count documents per collection with `count()` aggregations**, not full reads
+  — `db.collection(name).count().get()` bills roughly one read per 1000 docs, so
+  watching a whole database costs almost nothing.
+- **Store the counts in a server-only doc** (e.g. `meta/health`) and compare
+  against the previous run. Deny all client access in rules — it is operator
+  state, not app data.
+- **Set tolerance per collection, not globally.** Some collections should never
+  shrink (config/lookup rows your rules forbid deleting; user records removed
+  only by deliberate admin action) — there, *any* drop is a signal. Collections
+  where users routinely delete their own rows need a threshold like
+  `max(floor, fraction × previous)`: the floor stops a tiny dataset alerting on
+  routine tidying, the fraction keeps it meaningful as data grows.
+- **Always re-baseline**, including on a run that alerted — otherwise one bad day
+  alerts forever against a frozen baseline.
+- **Send a Sentry cron check-in** (`captureCheckIn` with a `monitorConfig`, which
+  upserts the monitor so there is no console setup). This is the part people
+  skip, and it is the most valuable: a job that has silently stopped never
+  reports its own failure. Passing the schedule as `monitorConfig.schedule` lets
+  Sentry alert on a *missing* check-in.
+
+Keep the comparison logic pure (`(previous, current) => findings`) and unit-test
+the policy exhaustively; keep the counting and the doc write in a thin wrapper an
+emulator test can drive. Known limitation worth writing down: run-to-run
+comparison catches sudden loss, not a slow bleed of a few documents a day — which
+is the right trade, because accidents and bad deploys are sudden.
+
+This is an operator signal, not a UI feature. "Entries fell 40%" is not something
+a user in the app can act on.
 
 ## Push notifications (FCM)
 
