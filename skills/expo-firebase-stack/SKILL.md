@@ -349,6 +349,33 @@ itself is fine; only the number lies. **Clamp it:
 `Math.min(1, bytesTransferred / totalBytes)`.** Web does not show this, so it
 passes review on web and surfaces only when someone watches the bar on a phone.
 
+### Going offline does NOT fail an upload — so you cannot test failure that way
+`uploadBytesResumable` is *resumable*: drop the network mid-upload and it retries
+and resumes when connectivity returns, finishing successfully (its retry budget
+is minutes, not seconds). So "kill the network to test the failure path" is a
+**false negative generator** — you conclude your error handling never ran when in
+truth there was no error. To exercise a real failure, break something that does
+not self-heal: block the *finalize/confirm* callable the client calls after the
+bytes land (`page.route(... , r => r.abort())` in Playwright). That is also a
+failure mode you genuinely have — bytes in Storage, no database record — so the
+test is worth having for its own sake, and it fails fast instead of after the
+retry budget.
+
+### An upload SPANS the moment its database record starts existing
+The usual safe ordering is: a callable creates the record and returns an id, the
+client writes the object to Storage under that id, then a second callable
+confirms it. That means a live listener on the record flips `null → set` **while
+the upload is still running**. Anything rendered in a branch keyed on "does the
+record exist" is therefore destroyed exactly when it is needed — most obviously
+the progress bar, which unmounts the instant the upload starts, leaving the
+"record exists but has no media" branch on screen: an error notice and a delete
+button, for the entire duration of a perfectly healthy upload. **Own the upload
+state above that branch**, and treat "exists but empty" as a normal, recoverable
+state (mid-upload, failed, media removed) rather than an error. Related: give
+that state a way *out* — if your API can clear the media for re-upload, the UI
+must expose re-upload, or clearing it is a one-way door whose only escape is
+deleting the record.
+
 ### Uploading a picked file on native: URI → Blob, not a File
 A document/image picker on native returns a `file://` (or `content://`) **URI**;
 the web `<input type=file>` hands you a `File`, which already IS a Blob. The
@@ -626,6 +653,38 @@ raw touch — which is one more reason to prefer it: it's the only version you c
 actually drive headlessly. For a JS PanResponder, the ground truth is a real
 device (or logging the `dx`/grant/terminate sequence from logcat to see what the
 responder actually received).
+
+### A wrapping button row CRUSHES its buttons on device, but not on web
+A row of controls styled `flexDirection: row, flexWrap: wrap` with items at
+`{ flexGrow: 1, flexShrink: 1, flexBasis: 150 }` looks correct on
+react-native-web at every width — items either share a line evenly or wrap. On
+device, Yoga will instead **squeeze** a line that does not quite fit, and it does
+not distribute the squeeze evenly: one button ends up a fraction of its
+neighbour's width, narrower than its own label, which then breaks *mid-word*
+("Publ / ish"). **Set `flexShrink: 0`** on the row items: a line then either fits
+or wraps, and both are readable. Keep `flexGrow: 1` so a lone button still fills
+the row, and add `maxWidth: '100%'` for the one case shrink was covering (a basis
+wider than the container on a very narrow screen).
+
+Two things make this expensive to find: it does not reproduce under
+react-native-web at *any* viewport width, and it is metric-dependent enough that
+you may not reproduce it on your emulator either (density and font-scale sweeps
+can all come back clean while a real phone shows it). When you cannot reproduce
+the trigger, **fix the mechanism** — with shrink disabled a control cannot be
+narrower than its basis regardless of *why* the line did not fit — and say
+plainly that the trigger is unconfirmed.
+
+### Button labels break mid-word at large accessibility font sizes
+`allowFontScaling` is on by default, so a user at Android's largest font setting
+(scale 2.0) renders your 15sp label at 30sp. A single word wider than the button
+does not shrink or ellipsise — it **breaks mid-word**: "Submit att / endance".
+Fix it on the shared button primitive, not per screen:
+`numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7}`. Two lines lets a
+multi-word label wrap at a word boundary (which is fine and readable); the font
+only scales down when a single word still will not fit. Do not simply pin
+`numberOfLines={1}` — that truncates, and do not disable font scaling, which is
+an accessibility setting the person deliberately chose. Sweep `adb shell settings
+put system font_scale 2.0` before shipping any dense control-heavy screen.
 
 ### Emoji arrows ignore text colour
 `◀`/`▶` render as colour glyphs. Use text-presentation characters (`‹`, `›`, `▾`)
@@ -1000,6 +1059,28 @@ Prove the mechanism: confirm the **foreground package** is yours
 (`adb shell dumpsys activity activities | grep -i mResumedActivity`), and confirm
 **your** Metro logged the bundle (`… Bundled … app/index.ts (N modules)`) — not
 just that *a* Metro answered `/status`. Only then trust the pixels.
+
+### Grepping a release bundle for a string gives FALSE NEGATIVES (Hermes UTF-16)
+Verifying that a fix actually shipped by unzipping the APK and grepping
+`assets/index.android.bundle` is a good instinct, and it will lie to you. Hermes
+stores a string containing **any** non-ASCII character — an em dash, a curly
+quote, a `…`, an accent — as **UTF-16**, so an ASCII `grep` cannot match it. Two
+strings added in the same commit give opposite answers purely on punctuation, and
+the natural reading is "my fix is missing from the build". Search both encodings
+before believing it:
+
+```python
+data = open('index.android.bundle','rb').read()
+data.count(s.encode('utf-8')), data.count(s.encode('utf-16-le'))
+```
+
+Also do not build the pattern with bash `$'…\x00…'` — bash truncates a string at
+the first NUL, so the pattern silently collapses to its first character and
+"matches" everywhere (implausibly high counts are the tell). And note what this
+check can and cannot prove: a string being *present* does not mean its code is
+reachable — dev-only UI is compiled into release bundles too, and what actually
+gates it is the build-time flag substitution (an absent `EXPO_PUBLIC_*` **name**
+means it was inlined and folded, which is the thing worth asserting).
 
 ### A seed or test silently did nothing, repeatedly
 Duplicate records, or an approval loop that approved nobody.
