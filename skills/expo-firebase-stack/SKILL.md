@@ -168,6 +168,32 @@ with a different id talks to a different database inside the same emulator.
 Use one exported constant for the emulator project id on both client and server,
 and pass the same value to `firebase emulators:exec --project`.
 
+### A seeded account is permanently "not provisioned", and re-seeding cannot fix it
+The seed script times out waiting for the first signed-in screen; the app sits on
+whatever you show for "signed in but no profile" — a wrong-domain or rejected
+message. The emulators are up, the ports answer, nothing errors.
+
+**Firestore is ready seconds before the functions emulator finishes loading.** A
+start-up script that waits on the Firestore port and then seeds races the
+auth-create trigger. A sign-in landing inside that window creates an **auth
+account with no user document** — and an app that infers "account exists, profile
+does not ⇒ the server rejected this address" will show that forever.
+
+Re-running the seed does not help: `onCreate` fires **once per account**, and the
+account already exists. The state is only clearable by deleting the auth user
+(`DELETE /emulator/v1/projects/<id>/accounts`).
+
+Wait for the **trigger to be registered**, not for a port to answer. The emulator
+log line is the only honest signal:
+
+```bash
+# ✔  functions[us-central1-onUserCreate]: auth function initialized.
+until grep -q 'onUserCreate.*auth function initialized' "$LOG"; do sleep 3; done
+```
+
+The general shape: **port open ≠ trigger registered**, and a readiness check on
+the wrong process fails by stranding data rather than by erroring.
+
 ### One snapshot, then silence (React Native only)
 The WebChannel stream dies silently under RN networking. Use
 `experimentalForceLongPolling` on native, `experimentalAutoDetectLongPolling` on
