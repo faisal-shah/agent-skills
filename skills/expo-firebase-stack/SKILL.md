@@ -1194,11 +1194,64 @@ Make the absence of the key an explicit early return rather than something that
 throws mid sign-in. Half-configured web push should do nothing, visibly by
 design, while native keeps working.
 
+### A tap that only opens the app is a half-built notification
+A push that names a specific record ("X was rejected", "Y is waiting for you")
+and then drops the user on the home screen has made them go find it themselves.
+Send the destination with the message.
+
+The two surfaces consume it completely differently, and only one of them can be
+handed a payload:
+
+- **Android**: an FCM `data` map (string→string), read from the tapped response.
+- **Browser**: nothing. A web push click can only *open a URL* — set
+  `webpush.fcmOptions.link` and put the destination in its query string.
+
+So encode the destination as flat string key/values once, and let the web
+transport re-read the identical keys off `location.search`. One encoder, one
+strictly-validating decoder, both surfaces — and the browser path is then
+testable in a normal e2e run by simply visiting the URL, which is the only way
+you will ever exercise this logic without a real device (see below).
+
+### `data.body` is intercepted by expo-notifications and eats the whole payload
+`expo-notifications` inspects one FCM data key by name. In
+`NotificationSerializer`, if `data["body"]` parses as JSON it is treated as the
+*entire* JS payload — every sibling key is dropped — and otherwise the flat map
+is copied through as `content.data`. Both paths work; mixing them does not.
+
+Pick one and never name a data key `body`. The failure is silent: your other keys
+simply aren't there at runtime, on the device only.
+
+Also unavoidable on Android: the same tap can be reported **twice** on a cold
+start — once by `getLastNotificationResponseAsync()` (the tap that launched the
+app, collectable only after the fact) and once by the response listener. Dedup on
+`request.identifier`.
+
+### A cold-start tap arrives before anything is navigable
+The tap happens before any JS exists. By the time you can read it, auth is still
+restoring, the profile has not loaded, and the navigator is not mounted — so
+navigating immediately does nothing, or throws.
+
+Queue the destination and release it only when the navigator is ready *and* the
+session is known. And check the destination is still reachable: a screen that is
+conditionally registered (manager-only, admin-only) does not exist for a demoted
+account, and navigating to a name the navigator doesn't have throws.
+
+One more, once routing works: navigating to a screen that is **already mounted**
+updates its params rather than remounting it. Any screen that seeds state from a
+param (`useState(initialKey)`) will ignore the new one and leave the user on the
+previously targeted record. Sync the param into state with an effect.
+
 ### What you cannot verify yourself
 No emulator delivers a push. FCM has no emulator, and an Android emulator without
 Play services will not receive one. Registration, rules and pruning are all
 testable; **arrival is not**. Say so explicitly rather than reporting the feature
 as done.
+
+The *routing* half is a different matter and is fully testable without delivery:
+drive the web build with the route in the query string (e2e), and on a device
+schedule a **local** notification carrying the same payload, then tap it. That
+covers the listener, the decode, the queue and the navigation — everything except
+FCM's own hop, which is exactly the part no test can reach.
 
 ## Dead-code and dependency audits
 
