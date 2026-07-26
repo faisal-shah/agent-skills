@@ -749,6 +749,35 @@ the trigger, **fix the mechanism** — with shrink disabled a control cannot be
 narrower than its basis regardless of *why* the line did not fit — and say
 plainly that the trigger is unconfirmed.
 
+### Text with `numberOfLines` PAINTS OVER its neighbour on device, invisibly on web
+A `<Text numberOfLines={1}>` sharing a flex row with a sibling — an icon button,
+a chevron, a count — needs **`flexShrink: 1`**. Without it Yoga measures the text
+against the row's *full* inner width, then lays it out *beside* the sibling, so
+the row's content is wider than the row. `numberOfLines` does not save you: the
+text still truncates with an ellipsis, at the wrong width, so it looks
+deliberate.
+
+What makes it expensive is the platform split. **RNW gives `View` a default
+`overflow: hidden`, so web clips the overrun and looks perfect.** Native `View`
+defaults to `overflow: visible`, so on device the text is drawn *on top of* the
+neighbouring control — a long title sitting across a "‹ Prev" button, which
+reads as a rendering glitch rather than a layout bug. Every screenshot you take
+in the browser will say the screen is fine.
+
+Audit for the shape rather than the symptom: grep `numberOfLines` and check each
+one is either `flexShrink: 1`, `flex: 1`, or the row's only child. Two details
+worth deciding once:
+
+- The **centred** variant is the one people forget — a `justifyContent: center`
+  row still needs shrink, and it is easy to write `!center && styles.shrink`
+  reasoning that centring somehow constrains the width. It does not.
+- Where the text *is* the row, with empty space above and below it, prefer
+  `numberOfLines={2}` with `textAlign: 'center'` over truncating at one line.
+
+Prove it with geometry, not eyeballs: in Playwright, compare the text's
+`getBoundingClientRect().right` against the sibling control's `left`. That check
+is meaningful even on web, where the clipping hides the overlap.
+
 ### Button labels break mid-word at large accessibility font sizes
 `allowFontScaling` is on by default, so a user at Android's largest font setting
 (scale 2.0) renders your 15sp label at 30sp. A single word wider than the button
