@@ -1341,6 +1341,99 @@ on the text so the test proves a confirmation was demanded:
 page.on('dialog', async (d) => { lastConfirm.set(page, d.message()); await d.accept(); });
 ```
 
+### `assertFails` passes for the wrong reason
+A rules test that only asserts a write is denied proves nothing about *why*. Add a
+field the validator rejects, or a typo in a doc id, and it still passes — green
+forever, testing nothing. Auditing a mature suite, several "the lock blocks this"
+tests turned out to be failing on malformed fixtures instead.
+
+Pair every `assertFails` with a **positive control**: the same write, succeeding
+once the condition under test is removed.
+
+```js
+await assertFails(update(asOwner, entryRef, change));   // blocked by the lock…
+await removeTheLock();
+await assertSucceeds(update(asOwner, entryRef, change)); // …and only by the lock
+```
+
+The same applies to fixtures. A constant like `T0 = 1752570000000` paired with a
+hand-written `'2026-07-15'` day key is unverifiable by eye — and was a year off.
+Derive fixtures (`Date.UTC(2026, 6, 15, 9)`) so they cannot drift from the labels
+they carry.
+
+## Rules protect clients — not your own backend
+
+Security rules apply to client SDKs. The Admin SDK **bypasses them entirely**, so
+every invariant expressed only in rules is unenforced for your own scheduled jobs,
+triggers, and callables. This is easy to forget precisely because the rule looks
+authoritative when you read it.
+
+The dangerous shape is an immutability lock: "once approved, nobody may modify
+this period's records." Clients obey. Then a nightly cleanup job edits one of
+those records, and the frozen thing changes with no trace and no error.
+
+When a backend job writes to data that rules protect:
+
+- **Re-check the invariant in the job.** The rule is not a shared guarantee.
+- **Decide deliberately between skipping and proceeding.** Skipping can be worse —
+  leaving a session open forever means retrying every hour, permanently.
+- **If you proceed, repair derived state and tell a human.** A sealed record
+  changing after the fact is exactly what nobody will notice on their own; a
+  Sentry message costs nothing and is the only reason anyone will ever know.
+
+Corollary worth probing: rules often permit a state your *client* prevents. If the
+UI blocks submitting while a session is still running, verify the rules do too, or
+that state will arrive eventually through a retry, a stale tab, or another client.
+
+### Claims changes do not evict a live session
+`setCustomUserClaims` updates the token *next time one is minted*. An ID token
+already in hand stays valid for up to an hour, and rules trust that token — so
+disabling someone does not necessarily stop them.
+
+Three layers, and you want all three:
+
+1. **A stamp the client watches** (e.g. `claimsUpdatedAt` on the user doc) so a
+   connected client force-refreshes within a second.
+2. **`revokeRefreshTokens(uid)`** on any loss of access, so a backgrounded or
+   offline client cannot mint a fresh token from an old refresh token.
+3. **Accept the residual**: an unexpired ID token still works, and Firestore rules
+   cannot check revocation time. Write that limitation down rather than implying
+   the eviction is instant.
+
+### A local-date key can be bounded even though rules can't do timezone math
+Bucketing by a client-computed local date (`dayKey`) is standard, and rules have no
+IANA database to verify it against the instant. That does not make it a pure trust
+boundary: every real UTC offset lies in **[-12h, +14h]**, so the instant behind
+local day D must fall in **[D_utc − 14h, D_utc + 36h)**.
+
+```
+function dayKeyPlausible(dayKey, start) {
+  let p = dayKey.split('-');
+  let dayMs = timestamp.date(int(p[0]), int(p[1]), int(p[2])).toMillis();
+  return start >= dayMs - 14 * 3600000 && start < dayMs + 36 * 3600000;
+}
+```
+
+Loose on purpose — it will not catch a DST hour, but it catches a record filed
+days from when it happened, which is what moves data into the wrong reporting
+bucket or past a period lock. No honest client can trip it.
+
+### Deleting a doc as a state transition destroys the audit trail
+"Withdraw" and "reopen" are tempting to model as deleting the doc: absence is a
+clean representation of "back to draft", and it keeps the state machine small. The
+cost is invisible until someone asks who approved something and when — the record
+was in the doc you deleted.
+
+Keep the delete (the state model really is simpler) and add an **append-only log
+written by a document trigger** — `onDocumentWritten` fires on deletes, with the
+final state in `before`. Write it server-side: a client that could write the log
+could forge or omit the events it exists to preserve, so rules deny all access.
+
+One caveat to design around: **triggers don't report who issued the write.** For
+deletes you often must infer the actor from the state it was deleted *from* (only
+an admin can delete an approved record), or record `null` honestly rather than
+guessing.
+
 ## Worked example: "sign-in is broken on phones"
 
 A tester reports the deployed web app fails to sign in from a link someone sent
