@@ -550,6 +550,55 @@ teal. Build toggles from `Pressable` and views you control. Assume any RNW
 control wrapping a platform widget may not be themeable, and confirm with a
 screenshot rather than trusting the props.
 
+### Two adjacent icon buttons and you keep hitting the wrong one
+Reported as "you have to use the very tip of your finger" to tell two icons
+apart — often a save/cancel pair, where the cost of a mis-hit is highest.
+
+`hitSlop` does not enlarge an element. It paints an invisible margin **outside**
+it, and neighbours' margins **overlap**: two icons 4px apart with 12px of
+horizontal slop each share a 20px band belonging to both, and which one receives
+the touch is arbitrary. The gap being smaller than the combined slop is the whole
+bug, so it appears exactly where controls are tightest and matters most.
+
+Give the control a real laid-out box instead — `minWidth`/`minHeight` of 44 with
+the ink centred inside it. Laid-out boxes cannot overlap, so adjacent targets are
+always unambiguous, and 44 is the platform accessibility minimum rather than a
+number that felt right. Rows of these then want a SMALL gap, not a large one: the
+separation is already inside the target, and keeping the old gap can push a
+one-row control bar past a phone's width.
+
+Audit for this by measuring, not squinting: assert the rendered boxes are 44×44
+and that the gap between them is ≥ 0.
+
+### A paged horizontal ScrollView paints the WRONG page first
+Symptom: coming back to a screen that restores a remembered page, the header
+names one page while the body shows another — and if that other page is empty it
+reads as "my data is gone".
+
+Restoring page state is synchronous, restoring scroll position is not. A
+`scrollTo` from `onLayout` (or deferred a frame) runs after a paint, so the first
+frame shows offset 0 under a header that already says page N. `contentOffset`
+looks like the fix but is only reliably honoured on **mount** — setting it on an
+already-mounted ScrollView is not applied on Android.
+
+What works: measure the width on a **wrapper**, mount the ScrollView only once
+the width is known, scroll from **`onContentSizeChange`** (the first moment the
+pages exist and a scroll can land), and keep it invisible until it is on the
+right page — a blank frame beats a wrong one. Guard the reveal on "is there
+actually a page to restore", or a remembered index that no longer exists (columns
+deleted since) leaves the screen permanently blank.
+
+### Verifying a horizontal pager by dumping text LIES to you
+`uiautomator dump` returns every page of a horizontal ScrollView, on-screen or
+not, because they are all in the hierarchy. Grepping the dump for a column's text
+"finds" it regardless of scroll position, so a broken pager looks fine and a
+fixed one looks broken.
+
+Check the node **bounds** — an off-screen page collapses to zero or negative
+width — or take a screenshot and look. This is the same class as a green web
+suite proving nothing about a native layout: the check ran, and measured
+something other than what you asked.
+
 ### A screen renders on web but is BLANK on device
 Header and buttons draw; the main content does not.
 
