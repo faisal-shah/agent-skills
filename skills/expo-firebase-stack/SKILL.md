@@ -430,6 +430,40 @@ at UPLOAD on *every* platform and store it, rather than leaving it null on the
 platform whose browser API is missing. Verify by PLAYING a file uploaded from
 each platform — not by reading the list label, which looks fine either way.
 
+### A client timestamp your cleanup keys on must be bounded server-side
+Rules that accept `createdAt is number` are fine while the field is decoration.
+The moment a scheduled sweep decides what to delete BY AGE, that field is a
+control input: a document claiming to be from the year 3000 is never older than
+the cutoff, so it and its bytes live forever. Bound it against `request.time`.
+Bound only the UPPER side, and generously — a tight bound refuses a real person
+whose device clock is merely wrong, trading a rare cost leak for a broken
+feature.
+
+And decide deliberately what the sweep does with a record it CANNOT age (missing
+or malformed timestamp). Skipping looks safe and is the wrong answer: the record
+is stuck in its half-finished state, so skipping keeps it forever.
+
+### Cache a downloaded file under its ID, never its display name
+Two attachments on one record can share a display name — auto-generated names
+stamped to the minute collide constantly. Key the on-disk cache by name and the
+second download overwrites the first, so opening the first shows the SECOND
+file's contents under the first one's name. Key it by id and keep the extension.
+
+### A progress bar can render perfectly and show nothing
+Check the CONTRAST of the fill against its track, not just that both are theme
+tokens. A soft-accent fill on an inset track measured 1.13:1 — invisible — so
+the only feedback during an upload displayed nothing while the upload worked.
+Non-text UI wants ≥3:1 (WCAG 1.4.11). If the label sits on the bar, it cannot be
+legible on both the filled and unfilled halves at once, so move the label off
+the bar and let the fill be a real colour.
+
+### Your source AndroidManifest is not the permission list
+Libraries merge their own `uses-permission` entries in. A comment in your
+manifest saying "only INTERNET and VIBRATE" is describing one input to the
+merger, not the result — and it invites exactly the wrong conclusion at review
+time. Read `android/app/build/intermediates/merged_manifest/…`, or the built
+APK's badging, and say in the comment that the file is not the whole story.
+
 ### Waiting for a nav label is not waiting for the screen
 `await page.getByText('People').waitFor()` then acting on the list is a trap when
 "People" is ALSO the nav item or the menu entry that got you there: it is already
