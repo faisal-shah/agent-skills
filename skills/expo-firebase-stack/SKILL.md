@@ -790,6 +790,41 @@ only scales down when a single word still will not fit. Do not simply pin
 an accessibility setting the person deliberately chose. Sweep `adb shell settings
 put system font_scale 2.0` before shipping any dense control-heavy screen.
 
+### A two-digit versionCode field collides sooner than you think
+Deriving Android's integer `versionCode` from the semver is right; giving each
+field two digits is not. `major*10000 + minor*100 + patch` makes **0.1.100 and
+0.2.0 both compute to 200**. Android refuses an install whose versionCode is not
+greater than the installed one and Play rejects a duplicate, so the release after
+`0.1.99` does not go out. At any real patch cadence that is months away, not
+years. Use `major*1000000 + minor*1000 + patch` (999 minor/patch, major to 2147
+before the signed-32-bit ceiling), and **throw from the build** on a malformed or
+out-of-range version instead of silently computing a wrong number.
+
+Changing an existing scheme is only safe UPWARD: the new formula must produce a
+larger number than the old one did for the current version, or the next release
+cannot install over the last. Widening 10000/100 → 1000000/1000 is safe (0.1.33:
+133 → 1033).
+
+Keep the version in ONE place (`app.json` → `expo.version`) and derive both
+`versionName` and `versionCode` from it. Scaffold defaults left in place are how
+every release ends up reporting the same version to Sentry, with release-health
+tracking silently dead.
+
+### The App Store's version rules are stricter than Android's, and you find out last
+Android accepts almost any version *name*, so a scheme can work for years and be
+rejected the first time it meets App Store Connect — after the version is tagged,
+built and installed. Apple's rules (Technical Note TN2420):
+`CFBundleShortVersionString` is digits and periods only, begins and ends with a
+digit, **at most three components**, **at most 18 characters**, unique and
+strictly increasing. So no `1.2.3-beta.1`, no `1.2.3.4`, no `v1.2.3`.
+
+Starting at `0.x` is fine and is not a blocker — `0.1.33 < 1.0.0`. Enforce the
+format in CI *and* at the publish step with a tiny script, and test it against
+the shapes it exists to reject; a validator nobody has seen reject anything is
+not known to work. `CFBundleVersion` (the build number) is a SEPARATE scheme —
+increasing within a train on iOS, monotonic forever on macOS — so do not plan on
+mirroring `versionCode` into it.
+
 ### Emoji arrows ignore text colour
 `◀`/`▶` render as colour glyphs. Use text-presentation characters (`‹`, `›`, `▾`)
 or draw them.
