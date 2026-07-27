@@ -597,6 +597,11 @@ each field *three* digits. The common two-digit scheme collides:
 versionCode = major*1000000 + minor*1000 + patch      // 0.25.0 -> 25000
 ```
 
+That leaves room for 999 minor and 999 patch, and major up to 2147 before
+Android's signed-32-bit ceiling. **Throw from the build** on a version that is
+malformed or out of those ranges, rather than silently computing a wrong number —
+a collision is invisible until an install refuses.
+
 Android refuses to install an APK whose `versionCode` is not greater than the
 installed one, so that release simply never goes out. Widening the multipliers
 later is safe; narrowing never is — check the new formula produces a larger
@@ -839,40 +844,23 @@ only scales down when a single word still will not fit. Do not simply pin
 an accessibility setting the person deliberately chose. Sweep `adb shell settings
 put system font_scale 2.0` before shipping any dense control-heavy screen.
 
-### A two-digit versionCode field collides sooner than you think
-Deriving Android's integer `versionCode` from the semver is right; giving each
-field two digits is not. `major*10000 + minor*100 + patch` makes **0.1.100 and
-0.2.0 both compute to 200**. Android refuses an install whose versionCode is not
-greater than the installed one and Play rejects a duplicate, so the release after
-`0.1.99` does not go out. At any real patch cadence that is months away, not
-years. Use `major*1000000 + minor*1000 + patch` (999 minor/patch, major to 2147
-before the signed-32-bit ceiling), and **throw from the build** on a malformed or
-out-of-range version instead of silently computing a wrong number.
+### A Gradle daemon plus emulators looks exactly like a broken diff
+`expo run:android` leaves a Gradle daemon resident on roughly 3.7 GB. Start the
+Firebase emulators on top of that on a Linux box running **earlyoom** — whose
+default `--prefer` list includes `java` and `gradle` — and the OOM killer takes a
+JVM. The one it takes is usually the Firestore emulator, mid-suite.
 
-Changing an existing scheme is only safe UPWARD: the new formula must produce a
-larger number than the old one did for the current version, or the next release
-cannot install over the last. Widening 10000/100 → 1000000/1000 is safe (0.1.33:
-133 → 1033).
+The reason this costs hours is that the symptom does not resemble memory
+pressure. You get ECONNREFUSED and a wall of failed-and-skipped tests, which
+reads as "my change broke the suite", so you go and audit your own diff. Nothing
+in the output mentions memory.
 
-Keep the version in ONE place (`app.json` → `expo.version`) and derive both
-`versionName` and `versionCode` from it. Scaffold defaults left in place are how
-every release ends up reporting the same version to Sentry, with release-health
-tracking silently dead.
+Stop the daemon before starting emulators (`./gradlew --stop` in the test
+script), rather than disabling it globally — that keeps the dev build loop fast
+and costs only a cold Gradle start on the next build. Release builds should pass
+`--no-daemon` anyway; it is the DEBUG path that leaks one.
 
-### The App Store's version rules are stricter than Android's, and you find out last
-Android accepts almost any version *name*, so a scheme can work for years and be
-rejected the first time it meets App Store Connect — after the version is tagged,
-built and installed. Apple's rules (Technical Note TN2420):
-`CFBundleShortVersionString` is digits and periods only, begins and ends with a
-digit, **at most three components**, **at most 18 characters**, unique and
-strictly increasing. So no `1.2.3-beta.1`, no `1.2.3.4`, no `v1.2.3`.
-
-Starting at `0.x` is fine and is not a blocker — `0.1.33 < 1.0.0`. Enforce the
-format in CI *and* at the publish step with a tiny script, and test it against
-the shapes it exists to reject; a validator nobody has seen reject anything is
-not known to work. `CFBundleVersion` (the build number) is a SEPARATE scheme —
-increasing within a train on iOS, monotonic forever on macOS — so do not plan on
-mirroring `versionCode` into it.
+Two projects hit this independently before either of us worked out what it was.
 
 ### Emoji arrows ignore text colour
 `◀`/`▶` render as colour glyphs. Use text-presentation characters (`‹`, `›`, `▾`)
