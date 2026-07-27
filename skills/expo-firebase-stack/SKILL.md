@@ -1704,6 +1704,58 @@ Two habits that catch it:
   shipped, all guards at once. Two separate single-guard mutations both came back
   green before the combined one turned red at the real defect.
 
+### A new test file is never run, and the totals hide it
+A suite invoked by an explicit file list — `vitest run test/a.test.ts test/b.test.ts`
+— silently ignores anything you add. There is a reason to list files (different
+emulator sets per pass, avoiding trigger cross-talk), so the fix is not globbing:
+it is a test that reads the package script back and fails if any file on disk is
+missing from it.
+
+```js
+const listed = `${pkg.scripts['test:integration:rules']} ${pkg.scripts['test:integration:fn']}`;
+const missing = readdirSync('test/integration')
+  .filter((f) => f.endsWith('.test.ts') && !listed.includes(`test/integration/${f}`));
+expect(missing).toEqual([]);
+```
+
+The signature is nasty because **nothing looks wrong**: the run is green, and the
+file and test counts are unchanged — which reads as "my change added no tests"
+rather than "my tests did not run". Compare counts before and after adding a
+suite; if they did not move, the suite is not running.
+
+### Redundant guards make a single mutation lie
+Mutation-testing one guard at a time reports "the test is vacuous" whenever two
+guards each cover the case alone. Break the ref-gate: green. Break the disabled
+state: green. Break both — the shape that actually shipped — and it goes red at
+the real defect. **Mutate back to the shipped state, not one line of it.**
+
+### Read production before designing a migration
+Querying the real data first turned a merge into a union: no two boards used the
+same label name and every embedded id was already globally unique, so each id
+could become the new document id and **no referencing row had to be rewritten**.
+The generalisable move is to check whether your existing ids can be reused as the
+new keys — if they can, the migration stops touching the referencing collection
+entirely, and old and new clients can both keep working while it runs.
+
+Split any such migration in two: create the new records first (invisible, old
+clients unaffected), deploy, then delete the old field. And make each half ABORT
+on the assumption it depends on — a duplicate id, a record not yet copied —
+rather than guessing. Fire both aborts deliberately against the emulator; an
+abort path you have never seen run is not a safety net.
+
+### `localeCompare` still sorts emoji-prefixed names by the emoji
+Switching a Firestore `orderBy` to a client-side `localeCompare` fixes code-unit
+ordering but not this: a name like `📋 Governance` still files under the emoji, so
+every emoji-prefixed entry clusters at one end of the list instead of under the
+word a reader is looking for. Strip leading non-alphanumerics for the sort key:
+
+```ts
+const sortKey = (name: string) => name.replace(/^[^\p{L}\p{N}]+/u, '') || name;
+```
+
+Verify it by LOOKING at the rendered list — the ordering was wrong in exactly the
+way the code comment claimed it had fixed.
+
 ### A test fails intermittently on a race it created itself
 Waiting for condition A and then asserting on condition B in the same tick. A
 trigger that deletes an auth user may still have a document write in flight; the
