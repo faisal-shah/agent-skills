@@ -1723,6 +1723,42 @@ file and test counts are unchanged — which reads as "my change added no tests"
 rather than "my tests did not run". Compare counts before and after adding a
 suite; if they did not move, the suite is not running.
 
+### `data ?? []` turns "not loaded yet" into "empty", and validation waves it through
+A live-query hook that reports `data: undefined` for BOTH the loading and the
+error state makes `?? []` a trap at any call site that validates against the
+list: a uniqueness check against an empty array always passes.
+
+```ts
+// Wrong — silently permits a duplicate while the list is still in flight
+const problem = validateName(name, list.data ?? []);
+
+// Right — the control stays disabled until the check can mean something
+const known = list.status === 'ready' ? list.data : null;
+```
+
+The ERROR case is the sharp one. Loading is a window measured in milliseconds;
+an errored listener is permanent, and the same screen usually renders an empty
+picker too — so the user cannot even see what they are duplicating.
+
+### An ordering guarantee is invisible on the happy path
+"Do A before B so a failure between them is recoverable" cannot be tested by
+asserting the end state: on success both orders end identically. Reversing them
+left an entire 251-test suite green.
+
+Extract the operation and inject the first step so a test can make it throw:
+
+```ts
+export async function applyDelete(id, actor, sweep = realSweep) {
+  const n = await sweep(id, actor);   // fails here → the record survives
+  await db().doc(`things/${id}`).delete();
+  return n;
+}
+```
+
+That one parameter is the whole difference between a documented guarantee and an
+enforced one. Any comment of the form "ORDER MATTERS" is a prompt to check
+whether a test would actually notice it being reversed.
+
 ### Redundant guards make a single mutation lie
 Mutation-testing one guard at a time reports "the test is vacuous" whenever two
 guards each cover the case alone. Break the ref-gate: green. Break the disabled
