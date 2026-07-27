@@ -430,6 +430,99 @@ at UPLOAD on *every* platform and store it, rather than leaving it null on the
 platform whose browser API is missing. Verify by PLAYING a file uploaded from
 each platform — not by reading the list label, which looks fine either way.
 
+### Storage rules cannot read your database, and everything follows from that
+Cloud Storage security rules have no `get()` into Firestore. If who-may-see-this
+lives in a document — a membership array, an org id, a team — **the rule cannot
+ask**. It can only reach the auth token.
+
+The workable shape is: the DATABASE record is the upload's authorization. A
+rules-checked write creates it, and the object goes to a path derived from ids
+only that write could have produced. The Storage rule then only has to say "an
+active account, write-once, under this size". Reads stay denied outright and
+every download is a short-lived signed URL from a callable that re-checks
+membership. Accept, and write down, the residual: someone who knows an id can
+push bytes to a path they should not. They are unreadable, but they are billable.
+
+### `allow write` in Storage rules includes DELETE — so write-once blocks cleanup
+`allow write: if resource == null` is the standard write-once rule, and it also
+silently means **the client can never delete the object**, because `resource` is
+non-null on a delete. Any "on failure, undo what I just uploaded" path in the
+client therefore deletes only the database record and leaves the bytes:
+unreferenced, unreadable, invisible, and billed forever. Undo has to be a
+server-side callable. And a retry must mint a NEW id — a second write to the same
+path is refused, which surfaces as an alarming permission error on an ordinary
+retry.
+
+### Decide inline-vs-download on the OBJECT, not on the signed URL
+`getSignedUrl` accepts `responseDisposition`/`responseType`, and they work — in
+production only. The emulator serves objects through its own `?alt=media`
+endpoint, which honours the object's STORED `contentType`/`contentDisposition`
+and ignores query overrides. So the whole question of whether a PDF renders or
+downloads, and whether the filename survives, is exercised by no local test.
+Write both onto the object when you finalize the upload instead; then the
+emulator and production serve identical headers and the behaviour is assertable.
+
+Two things to get right while you are there. Non-ASCII filenames need RFC 6266
+`filename*=UTF-8''<pct-encoded>` with an ASCII `filename="…"` fallback; a bare
+quoted form cannot carry them. And **never serve attacker-supplied `text/html` or
+`image/svg+xml` inline** — it executes script on the storage host's origin.
+Normalise those to `application/octet-stream`.
+
+### The emulator mints URLs against ITS OWN host, which is not the device's
+A functions emulator building an object URL uses `127.0.0.1`. On an Android
+emulator that address is the DEVICE, so the download fails with `Failed to
+connect to /127.0.0.1:9199` — which reads as a broken feature and is pure
+addressing. Rewrite the host client-side, **gated on emulator mode**: a real
+signed URL covers its host in the signature, so rewriting one breaks it.
+
+### `clearStorage()` is not synchronous, and it corrupts the NEXT test
+`testEnv.clearStorage()` in a `beforeEach` returns before the emulator has
+finished deleting. The deletion can land in the MIDDLE of the following test and
+remove an object that test just uploaded. The signature is vicious: a write-once
+assertion sees the second upload succeed, so the test fails pointing straight at
+your rule — and passes in isolation, so only the full suite shows it. Give every
+storage test its own object path instead of relying on the clear.
+
+### Opening a file in the system viewer is three steps on Android, one on web
+A browser takes a URL. Android will not: a viewer refuses a remote URL, and it
+cannot read a `file://` path out of your sandbox. Download to your own cache,
+convert with `FileSystem.getContentUriAsync` (Android-only, and only in
+`expo-file-system/legacy`), then `IntentLauncher.startActivityAsync('android.intent.action.VIEW',
+{ data: contentUri, flags: 1 })` — `flags: 1` is FLAG_GRANT_READ_URI_PERMISSION
+and without it the viewer is handed a path it may not read.
+
+You must also declare `<queries><intent><action android:name="android.intent.action.VIEW"/>
+<data android:mimeType="*/*"/></intent></queries>`. On API 30+ package visibility
+hides every handler otherwise, and the failure is silent — the tap does nothing
+at all. `expo-intent-launcher` ships an empty manifest, so this cannot come from
+the library. Fall back to the share sheet when nothing claims the type.
+
+### On web, open the tab BEFORE you have the URL
+Minting a signed URL is async. `await getUrl(); window.open(url)` is a
+popup-blocker false negative: the browser sees a programmatic open with no
+gesture behind it, blocks it silently, and nothing happens and nothing throws.
+Open a blank tab synchronously in the click handler, then set its location when
+the URL arrives. Do not pass `noopener` in the feature string — it makes
+`window.open` return null, which is the handle you need; sever `tab.opener`
+manually instead.
+
+### A picker's `fileName` can be present and useless
+An Android gallery reports a MediaStore id (`1000000089.png`) and the camera a
+bare UUID. A "keep the name if there is one" fallback never fires, and a card
+with three photos lists three identifiers nobody can tell apart. Treat a
+purely-numeric or UUID-shaped basename as absent and generate something readable
+with a timestamp.
+
+### Library manifests merge permissions you did not ask for
+`expo-file-system` and `expo-image-picker` both declare READ/WRITE_EXTERNAL_STORAGE
+(capped at API 32) in their own manifests, and the merger folds them into your
+app silently. Check the MERGED manifest
+(`android/app/build/intermediates/merged_manifest/...`), not your source one.
+Suppress with `tools:node="remove"` only where you are sure — a permission a
+library declares for a path your test devices are too new to exercise is one you
+cannot verify removing, and stripping it breaks the feature for whoever has the
+oldest phone.
+
 ### Long media: don't proxy through a function, don't hand out non-expiring URLs
 Two independent rules that both bite only in production:
 - **Streaming bytes through a callable dies on the function timeout.** A
