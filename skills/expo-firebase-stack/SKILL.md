@@ -567,6 +567,55 @@ Derive `versionName` from `app.json` so that number means something — a scaffo
 default that never bumps makes "which build is this?" unanswerable, on the device
 and in your crash reports.
 
+### The version number is a store contract, and Android hides that from you
+Adopt this before the first release even if iOS is hypothetical. Fixing it later
+costs a re-release, because by the time App Store Connect tells you, the version
+is already tagged, built and installed on people's phones.
+
+**The version is exactly three integers, `X.Y.Z`, in ONE file** (`app.json` →
+`expo.version`). Everything else derives from it.
+
+No pre-release suffix (`1.2.3-beta.1`), no fourth component, no leading `v`, at
+most 18 characters, strictly increasing, never reused. These are Apple's, from
+[TN2420](https://developer.apple.com/library/archive/technotes/tn2420/_index.html):
+`CFBundleShortVersionString` takes digits and periods only, at most three
+components. Android is far laxer about the version *name* — which is the trap. A
+scheme that worked for years on Android is rejected the first time it meets App
+Store Connect, and nothing warns you in between. Starting at `0.x` is fine:
+`0.25.0 < 1.0.0`, so the eventual jump still increases.
+
+**Also ban leading zeros**, which the shape check `^\d+\.\d+\.\d+$` lets through.
+`2026.07.01` is legal to Apple, but `07` and `7` are the same number, so a
+date-style scheme can produce a version that does not increase. Use
+`^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$`.
+
+**The Android `versionCode` bites first.** Derive it from the semver, and give
+each field *three* digits. The common two-digit scheme collides:
+
+```
+0.1.99 -> 199,  0.1.100 -> 200,  0.2.0 -> 200   <-- same number
+versionCode = major*1000000 + minor*1000 + patch      // 0.25.0 -> 25000
+```
+
+Android refuses to install an APK whose `versionCode` is not greater than the
+installed one, so that release simply never goes out. Widening the multipliers
+later is safe; narrowing never is — check the new formula produces a larger
+number than the old one did for the current version.
+
+Enforce it in **three** places, because each catches what the others cannot: a
+CI/lint script (catches a web-only release that never runs Gradle), the Gradle
+config (fails even when nobody ran the script), and the release step (the last
+gate before a tag and a public download exist). And **test the validator against
+the shapes it exists to stop** — `1.2.3-beta.1`, `1.2.3.4`, `v1.2.3`,
+`2026.07.01`, `0.1.1000`. A self-test that runs on every invocation costs
+microseconds; writing one is how you discover your regex accepts dates.
+
+When iOS actually arrives, `CFBundleVersion` (the build number) is **separate**
+and needs its own scheme — on iOS it must increase within a version train and may
+repeat across trains; on macOS it must increase forever and may never repeat. Do
+not assume it can mirror `versionCode`. Git tags may keep a `v` prefix; Apple
+never sees your tags, only the bundle.
+
 ## react-native-web
 
 ### A control ignores your theme colours
