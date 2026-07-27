@@ -430,6 +430,35 @@ at UPLOAD on *every* platform and store it, rather than leaving it null on the
 platform whose browser API is missing. Verify by PLAYING a file uploaded from
 each platform — not by reading the list label, which looks fine either way.
 
+### The functions emulator SERIALISES calls to a warm instance — so races vanish
+Fire N concurrent requests at a callable through the emulator and they may run
+one after another, because a warm instance handles them in turn. A race test
+driven over HTTP therefore **passes against genuinely broken code**. The cruel
+part is that it can reproduce once, on a cold start, and then never again — so
+you "confirm" the bug, fix it, and keep a test that has stopped testing.
+
+Test the race IN-PROCESS instead: extract the effect from the callable (the
+callable becomes auth + validate + delegate) and drive the extracted function
+with `Promise.all`. Two promises in one process genuinely interleave on Firestore
+round-trips. The same split is worth having anyway — it is the only way to test
+a scheduled function's body without a pubsub emulator.
+
+### Read-then-write in a callable is a race, and Firestore will not save you
+`const snap = await ref.get(); if (snap.exists) { await ref.delete(); log(); }`
+is two round-trips with a window between them. Two taps on a slow connection, or
+two people on the same card, both see the document and both log. Same for "if
+status is pending, set it to done and record it". Put the state transition in
+`runTransaction` and let **only the caller whose transaction actually made the
+change** write the follow-on effect. Cheap, and the alternative is duplicate
+history entries nobody can explain later.
+
+### Attribute an action to the actor in the DATA, not the caller
+A confirm/finalize step is often invoked by whoever happens to be there — a
+retry, another device, a different person on the same board. If it writes "X did
+this" from `request.auth.uid`, the record is wrong exactly when it matters. Take
+the actor from the document (`uploadedBy`, `createdBy`) whenever the document
+knows better than the caller does.
+
 ### Storage rules cannot read your database, and everything follows from that
 Cloud Storage security rules have no `get()` into Firestore. If who-may-see-this
 lives in a document — a membership array, an org id, a team — **the rule cannot
