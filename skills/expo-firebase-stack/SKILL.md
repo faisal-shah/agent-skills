@@ -1723,6 +1723,45 @@ file and test counts are unchanged — which reads as "my change added no tests"
 rather than "my tests did not run". Compare counts before and after adding a
 suite; if they did not move, the suite is not running.
 
+### Anything you render near a focused input is probably behind the keyboard
+A keyboard-aware scroller positions the FOCUSED element and nothing else. Two
+symmetrical failures follow, and neither is visible from the code:
+
+- **Below the input**: the scroller leaves a fixed offset under the field (enough
+  for its submit button, no more). An autocomplete or hint rendered in that gap
+  is simply under the keyboard. Symptom: you type `@`, see the list's *heading*
+  and no rows at all.
+- **Above the input**: content inserted above a field that is ALREADY focused
+  pushes it down, and the scroller does not re-run — so the list is visible and
+  the box you are typing into is not.
+
+The fix for both is to take the popover out of layout: `position: 'absolute'`
+with `bottom: '100%'` on a wrapper around the field. The field never moves from
+where the scroller put it, and the list floats over whatever is above.
+
+```tsx
+<View>                                  {/* relative by default */}
+  {open ? <View style={{ position: 'absolute', bottom: '100%',
+                         left: 0, right: 0, zIndex: 10, elevation: 8 }}>…</View> : null}
+  <TextField … />
+</View>
+```
+
+`zIndex` AND `elevation` — web/iOS stack on the first, Android on the second.
+
+**Screenshot each attempt on a device.** All three states here — invisible below,
+field-hidden above, correct as a popover — looked equally fine in the source.
+
+### A nested ScrollView needs its own `keyboardShouldPersistTaps`
+It is not inherited from the screen's scroll view. Without it the first tap on a
+row while the keyboard is up only dismisses the keyboard; the press never fires
+and the row reads as dead. A picker opened from a BUTTON never shows this,
+because no keyboard is up — so the bug only appears in the one list that is used
+while typing, which is the one nobody thinks to re-check.
+
+No automated test can catch its removal on web, because web has no soft
+keyboard. Say so out loud rather than implying the suite covers it.
+
 ### `data ?? []` turns "not loaded yet" into "empty", and validation waves it through
 A live-query hook that reports `data: undefined` for BOTH the loading and the
 error state makes `?? []` a trap at any call site that validates against the
