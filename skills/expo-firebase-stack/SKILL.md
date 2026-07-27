@@ -430,6 +430,37 @@ at UPLOAD on *every* platform and store it, rather than leaving it null on the
 platform whose browser API is missing. Verify by PLAYING a file uploaded from
 each platform — not by reading the list label, which looks fine either way.
 
+### Waiting for a nav label is not waiting for the screen
+`await page.getByText('People').waitFor()` then acting on the list is a trap when
+"People" is ALSO the nav item or the menu entry that got you there: it is already
+on screen, so the wait returns instantly and the next line samples a list that
+has not loaded. In a test it looks like a flake; in a SEED script it is worse —
+the loop finds nothing, exits, and the script reports success having done
+nothing. One seed here silently produced a one-person board for weeks, so every
+manual screenshot and every hand-test ran against an unrepresentative state.
+Wait for the thing you are about to act on (the row, the Approve button), never
+for the label of the screen it sits on.
+
+### Sanitise client-side too, or the row renames itself
+If the server normalises a user-supplied name and the client does not, the value
+visibly CHANGES the moment the server writes it back — the file you attached as
+`report".pdf` becomes `report_.pdf` under your cursor. Worse, if security rules
+bound the field, an ordinary long name fails with a raw `permission-denied`
+instead of a sentence. Run the same shared sanitiser on both sides: the server
+because it is the boundary, the client so the result is never a surprise.
+
+### Truncating a filename by slicing the front cuts the extension off
+`name.slice(0, MAX)` on a long filename drops `.pdf`, and the extension is what
+your UI shows as the file's kind and what some viewers sniff to pick a handler.
+Shorten the STEM and keep the suffix.
+
+### A MIME type from a client is a response header — match the grammar
+A `contentType` you store on an object comes back as `Content-Type` on a
+response. Checking "does it contain a slash" lets `application/pdf\r\nX: 1`
+through unchanged, which is a header-injection shape. Match RFC 6838's token
+grammar (`type/subtype`, restricted characters, bounded length) and discard
+anything that does not fit rather than trying to repair it.
+
 ### The functions emulator SERIALISES calls to a warm instance — so races vanish
 Fire N concurrent requests at a callable through the emulator and they may run
 one after another, because a warm instance handles them in turn. A race test
