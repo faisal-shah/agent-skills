@@ -591,6 +591,47 @@ hides every handler otherwise, and the failure is silent — the tap does nothin
 at all. `expo-intent-launcher` ships an empty manifest, so this cannot come from
 the library. Fall back to the share sheet when nothing claims the type.
 
+### `shareAsync` has ONE slot, and a duplicate tap is rejected outright
+`expo-sharing` stores a single `pendingPromise`: set before the chooser starts,
+cleared only when the activity result comes back. A second `shareAsync` while one
+is outstanding throws `ERR_SHARING_IN_PROGRESS`, and the raw rejection reads
+*"Call to function 'ExpoSharing.shareAsync' has been rejected. → Caused by:
+Another share request is being processed now."* — a sentence about function calls,
+shown to someone who tapped a PDF twice.
+
+Match the **code**, not the message: expo infers `ERR_SHARING_IN_PROGRESS` from the
+exception class name, so it survives a rewording upstream.
+
+The real defect is upstream of the mutex. Opening is slow — mint a signed URL,
+then download the whole file — and if the row does not change while that happens,
+tapping again is the reasonable thing to do. Show the work on the row that was
+tapped and stop accepting taps on it.
+
+### A `busy` flag is state, so it cannot stop a same-frame double tap
+`const [busy, setBusy] = useState(false)` plus `disabled={busy}` is the usual
+guard, and it is a frame late: two taps inside one frame both read the value from
+before the first, and the DOM still carries the old handler because React has not
+re-rendered. It covers a slow double tap and nothing faster.
+
+Where a duplicate is genuinely harmful — a native single-slot API, a payment, a
+non-idempotent write — gate on a **ref**, read and written synchronously in the
+handler, and keep the state purely for rendering. Write both through one
+begin/end pair so they cannot drift.
+
+```tsx
+const busyRef = useRef<string | null>(null);
+const begin = (id: string) => {
+  if (busyRef.current !== null) return false;   // synchronous, no render needed
+  busyRef.current = id;
+  setActive(id);                                 // for the UI only
+  return true;
+};
+```
+
+Check the flag reaches the control, too. A panel where every other button took
+`disabled={busy}` had exactly one action that did not, and that was the one that
+broke.
+
 ### On web, open the tab BEFORE you have the URL
 Minting a signed URL is async. `await getUrl(); window.open(url)` is a
 popup-blocker false negative: the browser sees a programmatic open with no
@@ -1657,6 +1698,11 @@ Two habits that catch it:
 - **Mutate the thing under test and watch the check go red.** This is the only
   way to distinguish a passing check from a vacuous one, and it costs one run.
   Any assertion of the form "X is not present" is worth this treatment.
+- **Redundant guards make a single mutation lie.** Break one of two guards that
+  each cover the case alone and the suite stays green — which reads as "the test
+  is vacuous" when the test is fine. Mutate back to the shape that actually
+  shipped, all guards at once. Two separate single-guard mutations both came back
+  green before the combined one turned red at the real defect.
 
 ### A test fails intermittently on a race it created itself
 Waiting for condition A and then asserting on condition B in the same tick. A
