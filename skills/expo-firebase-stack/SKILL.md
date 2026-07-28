@@ -1900,6 +1900,45 @@ guards each cover the case alone. Break the ref-gate: green. Break the disabled
 state: green. Break both — the shape that actually shipped — and it goes red at
 the real defect. **Mutate back to the shipped state, not one line of it.**
 
+### A failed functions build leaves the emulator running the PREVIOUS code
+The functions emulator serves the built bundle, and `build` is
+`tsc --noEmit && esbuild`. When tsc fails, esbuild never runs and **the old
+bundle stays on disk** — so `emulators:exec` starts happily and the tests run
+against the last version that compiled.
+
+This is lethal to mutation testing, and it fails in the direction that reassures
+you. Deleting a call in order to mutate it orphaned that call's import, tsc
+errored, the bundle kept the ORIGINAL code, and the test went **green** — which
+was then read as "this test cannot detect the bug" when the truth was "the bug
+was never in the binary". The conclusion was the exact opposite of the fact.
+
+- **Check the build's exit code.** `npm run build >/dev/null 2>&1` followed by a
+  test run is a lie waiting to happen: a mutation whose build failed is not a
+  result, it is a skipped experiment.
+- **Prefer type-clean mutations** — change a value (`filesRemoved: 0`), do not
+  delete the call. Deletions orphan imports and take the build down with them.
+- A green mutation means something only once the mutated code is proven to be
+  the code that ran.
+
+The nastiest part is that it poisons only HALF a suite. Tests that
+`import { thing } from '../../src/thing'` execute the TypeScript **source** in
+the test process and mutate correctly whatever the build did; tests that drive a
+**trigger or callable** go through the emulator's bundle and silently go stale.
+So the same mutation run reports honest failures for the in-process tests and
+false passes for the trigger tests, in one output, and the mixture reads as "my
+trigger test is weak".
+
+General form: before concluding a test is wrong, confirm the artefact under test
+is the artefact you edited — and know which artefact each test actually loads.
+
+### Wait on the EVENT, not on a number derived from it
+`waitFor(() => total === before - 64)` passed against code that recorded
+nothing. A value that never moves cannot satisfy an equality wait — it can only
+time out — so the assertion carried no information about whether the work
+happened, only about how long it took to give up. Polling instead for *"the
+counter increased"* fails immediately and names the event that never fired.
+**Wait for the thing that should occur; assert the arithmetic separately.**
+
 ### Read production before designing a migration
 Querying the real data first turned a merge into a union: no two boards used the
 same label name and every embedded id was already globally unique, so each id
