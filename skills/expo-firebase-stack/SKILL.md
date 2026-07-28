@@ -1779,6 +1779,30 @@ The ERROR case is the sharp one. Loading is a window measured in milliseconds;
 an errored listener is permanent, and the same screen usually renders an empty
 picker too — so the user cannot even see what they are duplicating.
 
+### Closing an autocomplete on blur destroys the click that was about to pick
+A click fires **mousedown → blur → click**. Hide the list on blur and the row is
+gone before the click lands, so picking silently stops working — you trade a
+popover that lingers for one that cannot be used.
+
+Defer the close (~200ms) and let a focus cancel it. If the pick already refocuses
+the input, it cancels its own pending close for free.
+
+The two behaviours are one change and must be asserted together: "clicking away
+closes it" AND "clicking a row still picks". Mutating the grace period to zero
+should turn the SECOND one red — if it does not, the pick is not really covered.
+
+### A test that restates a constant drifts from it
+A script that writes out `timeZone: 'America/New_York'` — even with a comment
+explaining the bug it was added to fix — keeps saying that after the app's
+`ORG_TIMEZONE` moves. The result was an assertion that could not pass between
+23:00 and midnight local: the test wrote tomorrow's date and the app grouped the
+card under "next 7 days".
+
+Import the app's own function (`todayInOrgTz()`), do not re-derive it. And when a
+check fails twice and passes once on identical code, measure before calling it a
+flake — print what each side actually computed. This one was one `node -e` away
+from obvious for weeks.
+
 ### A shared email domain makes substring matching useless
 Any people-picker that matches on the whole email address will match EVERYONE in
 a single-domain organisation: every letter of `acme.com` appears in every
