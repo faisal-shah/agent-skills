@@ -1779,6 +1779,33 @@ The ERROR case is the sharp one. Loading is a window measured in milliseconds;
 an errored listener is permanent, and the same screen usually renders an empty
 picker too — so the user cannot even see what they are duplicating.
 
+### A shared email domain makes substring matching useless
+Any people-picker that matches on the whole email address will match EVERYONE in
+a single-domain organisation: every letter of `acme.com` appears in every
+address, so typing `@a`, `@c`, `@m`, `@o` or `@e` narrows nothing. Match the
+local part (the handle) and the display name; the local part is what the address
+adds anyway.
+
+While there: rank matches at the START above matches in the middle, or "s" puts
+*Fai-s-al* above *Sara* and looks broken.
+
+### Scroll targets must use the row PITCH, not the row height
+`scrollTo({ y: index * ROW_HEIGHT })` drifts by one gap per row whenever rows
+have a margin. Four pixels is invisible at row two and most of a row by row
+twelve, so the far end of a list scrolls to the wrong item. Derive one
+`ROW_PITCH = ROW_HEIGHT + ROW_GAP` and use it for the row, the scroll and the
+height cap.
+
+And do not FIX the row height at all: text scales with the reader's system font
+size, so a fixed height clips names at large accessibility settings. Use a
+minimum and measure the real pitch from the first row's `onLayout`.
+
+### Key repeat is faster than a render
+Held arrow keys fire about every 33ms; React re-renders in about 16. Two moves
+can land against the same state value, so the highlight moves one step instead
+of two and the list feels like it is sticking. Same fix as any state-vs-frame
+race: keep a ref alongside and read it in the handler.
+
 ### An ordering guarantee is invisible on the happy path
 "Do A before B so a failure between them is recoverable" cannot be tested by
 asserting the end state: on success both orders end identically. Reversing them
