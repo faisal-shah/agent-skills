@@ -1779,6 +1779,30 @@ The ERROR case is the sharp one. Loading is a window measured in milliseconds;
 an errored listener is permanent, and the same screen usually renders an empty
 picker too — so the user cannot even see what they are duplicating.
 
+### A new "who cares about this doc" list is a new READ grant
+The moment a cross-collection list ("things I follow") appears in the UI, the
+query has to be authorized from its own constraint — rules cannot prove anything
+about an unconstrained `collection('things')`. So the field gets an arm in the
+read rule, and that arm IS an access grant.
+
+Whatever the existing membership-style field does, the new one must do too:
+
+- constrained to people who could already read the doc (else it is a way in),
+- **cleared when someone loses access** — the removal path already clears the old
+  field for exactly this reason, and forgetting the new one is a silent leak,
+- filtered when the doc moves to a different parent,
+- and absent from a copy, if the thing being followed is not copied.
+
+Mutate each one and watch a test go red; the "cleared on removal" case is the one
+with no visible symptom until someone leaves.
+
+### Adding a filter to an existing query can need a composite index
+`where('parentId','==',x).where('followers','array-contains',u)` is an equality
+plus an array-contains, which automatic single-field indexes do NOT serve. It
+works in the emulator (which does not enforce composites) and fails in
+production. If a comparable pair already exists in `firestore.indexes.json`, that
+is the tell: add the mirror image and a probe at the same time.
+
 ### Closing an autocomplete on blur destroys the click that was about to pick
 A click fires **mousedown → blur → click**. Hide the list on blur and the row is
 gone before the click lands, so picking silently stops working — you trade a
