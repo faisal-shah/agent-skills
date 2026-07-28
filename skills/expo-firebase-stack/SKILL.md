@@ -1779,6 +1779,27 @@ The ERROR case is the sharp one. Loading is a window measured in milliseconds;
 an errored listener is permanent, and the same screen usually renders an empty
 picker too — so the user cannot even see what they are duplicating.
 
+### Overlapping notification audiences: precedence decides whose PREFERENCE wins
+When one event can reach the same person through two routes (assigned to it,
+subscribed to it), you de-duplicate by picking one route and excluding the
+other — and that choice silently decides which preference applies. Get it
+backwards and an explicit per-item opt-in is swallowed by a global default the
+user turned off, so the button they pressed does nothing and nothing explains it.
+
+**The narrower, hand-made choice must win.** A per-item subscription outranks a
+blanket "everything assigned to me" setting. Make the message text identical for
+both routes so the ordering has no other visible effect, and assert it: reverting
+the precedence should turn exactly one test red.
+
+### One screen, two queries: don't let the secondary one take down the primary
+Adding a second list to a screen usually means widening the loading and error
+gates to cover both. That quietly makes a failure in the *new* list fatal for the
+*existing* one. Gate the error on whichever list is actually being viewed.
+
+And when showing a count for the list you did NOT block on, never render 0 for a
+query that errored — show "?" or nothing. "Not loaded" is not "empty", and a
+zero is indistinguishable from a real answer.
+
 ### A new "who cares about this doc" list is a new READ grant
 The moment a cross-collection list ("things I follow") appears in the UI, the
 query has to be authorized from its own constraint — rules cannot prove anything
