@@ -2152,6 +2152,22 @@ insets, so keyboard behaviour differs from real hardware.
 **Reproduce on the surface that is broken.** A green web suite says nothing about
 a native layout bug — the divergence *is* the bug.
 
+### The APK at the output path may be the PREVIOUS build
+`assembleRelease` writes to a fixed path, and the file from last night's build is
+sitting there before the new one starts. A publish script pointed at that path
+will happily upload it — so a release can go out labelled vNEXT carrying vPREV's
+bytes, and nothing anywhere disagrees.
+
+Gradle's own progress output does not help: it prints tasks for minutes before it
+replaces the artefact.
+
+**Check the mtime against the clock, not the file's existence**, and confirm the
+version baked into the binary before publishing — the readable `versionName`
+survives in the binary `AndroidManifest.xml` string pool, so a few lines of
+Python prove which release the bytes are. Then check the uploaded asset's byte
+size equals the local file's. A rolling-tag asset looks identical before and
+after a publish; size and timestamp are the only evidence it moved.
+
 ### A test hook on a `.web.tsx` seam covers ONE layout, silently
 A platform seam (`Foo.tsx` / `Foo.web.tsx`) is two files. A `testID` — or a raw
 `data-testid` on the web file, which is easy to reach for because that file
