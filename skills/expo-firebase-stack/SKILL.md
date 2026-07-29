@@ -2152,6 +2152,20 @@ insets, so keyboard behaviour differs from real hardware.
 **Reproduce on the surface that is broken.** A green web suite says nothing about
 a native layout bug — the divergence *is* the bug.
 
+### A test hook on a `.web.tsx` seam covers ONE layout, silently
+A platform seam (`Foo.tsx` / `Foo.web.tsx`) is two files. A `testID` — or a raw
+`data-testid` on the web file, which is easy to reach for because that file
+already emits real DOM — exists on that layout and no other. Every e2e suite
+addressing it then runs at whatever viewport makes that layout render, and the
+other layouts have **no coverage at all** while the suites report green.
+
+The symptom is not a failure. It is a suite that has been passing for months and
+a `locator ... Timeout 30000ms` the first time anything drives the other layout.
+
+**Put the handle on every seam, or on the shared component they all embed.** Then
+check what viewport your suites actually run at: if they all straddle one side of
+the breakpoint, the phone-first layout is untested no matter how many checks pass.
+
 ### Read the reference implementation before designing a fix
 A sibling project had already solved the keyboard problem with a native library,
 had the dependency pinned, and carried a comment explaining exactly why the
