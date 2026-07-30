@@ -858,6 +858,46 @@ teal. Build toggles from `Pressable` and views you control. Assume any RNW
 control wrapping a platform widget may not be themeable, and confirm with a
 screenshot rather than trusting the props.
 
+### A raw DOM element inside your app renders in Times, at the wrong size
+The moment you mount something react-native-web did not render — a
+`contenteditable` from a rich-text library, a third-party web widget, anything
+reached through a `.web.tsx` seam — its text comes out in the browser's default
+serif at the browser's default size, sitting inside an app that is otherwise
+sans.
+
+RNW resolves `fontFamily: 'System'` to a font stack and writes it onto **each
+`Text` element's own class**. It never sets it on `body`, and `View` does not set
+it either, so there is nothing in the ancestor chain for a foreign element to
+inherit. Font size is the same story: your app has a type scale, the UA has
+`16px`, and a bare element gets the UA's. A `TextInput` on native is a third
+answer again (RN defaults to 14), so the same editor can differ from the app in
+one direction on web and the other on native.
+
+Nothing catches this. Colour lint rules do not look inside CSS strings, the
+element is styled correctly by every assertion you wrote, and the layout is not
+broken — only the typeface is, and only in a region you probably screenshot
+rarely because it is behind an "edit" affordance.
+
+Set the font explicitly on the foreign element, from the same tokens the app
+uses, and be careful about specificity: an **inline** `fontSize` beats the class
+rule you added, so keep both in one place rather than half in each.
+
+Then assert it by comparison, not by restating the stack:
+
+```js
+const f = await page.evaluate(() => {
+  const norm = (v) => v.replace(/\s+/g, '').replace(/"/g, '').toLowerCase();
+  const foreign = document.querySelector('[contenteditable="true"]');
+  const native = /* any element RNW rendered, e.g. a button's text node */;
+  return {
+    a: norm(getComputedStyle(foreign).fontFamily),
+    b: norm(getComputedStyle(native).fontFamily),
+  };
+});
+// a === b, computed against a real rendered control — hardcoding the expected
+// stack would just restate the assumption that produced the bug.
+```
+
 ### Two adjacent icon buttons and you keep hitting the wrong one
 Reported as "you have to use the very tip of your finger" to tell two icons
 apart — often a save/cancel pair, where the cost of a mis-hit is highest.
