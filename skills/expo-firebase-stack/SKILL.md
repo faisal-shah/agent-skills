@@ -918,6 +918,44 @@ one-row control bar past a phone's width.
 Audit for this by measuring, not squinting: assert the rendered boxes are 44×44
 and that the gap between them is ≥ 0.
 
+### A swipe pager puts EVERY page in the accessibility tree at once
+A carousel/pager built on a horizontal `ScrollView` lays out all its pages —
+that is how swiping works — so all of them are in the accessibility tree
+simultaneously. Sighted users see one page; a screen reader walks every page's
+content with nothing to say which page it is in, and any control the page
+template repeats is announced once per page ("Add card", nine times).
+
+It also breaks test selectors in a way that looks like a product bug: a
+role-based lookup for a control that is visually unique resolves to N elements
+and fails as a strict-mode violation.
+
+Hide the off-screen pages, using all three spellings, because they are three
+platforms' names for the same idea:
+
+```jsx
+<View
+  aria-hidden={!onScreen}                                     // react-native-web
+  accessibilityElementsHidden={!onScreen}                     // iOS
+  importantForAccessibility={onScreen ? 'auto' : 'no-hide-descendants'}  // Android
+>
+```
+
+**Verify against the accessibility TREE, not the DOM.** `querySelectorAll`
+returns `aria-hidden` nodes happily, so a DOM-based audit reports identical
+numbers before and after the fix and the fix looks ineffective. Playwright's
+role engine skips `aria-hidden` subtrees — the same rule a screen reader
+follows — so a role-locator count is the tree count. Assert BOTH, because
+`tree === 1` alone also passes when the screen renders nothing:
+
+```js
+const tree = await page.getByRole('button', { name: 'Add card', exact: true }).count();
+const dom  = await page.evaluate(() => document.querySelectorAll('[role="button"]').length);
+// expect tree === 1 && dom > 1
+```
+
+(`page.accessibility.snapshot()` is removed in current Playwright — reach for
+role locators instead.)
+
 ### A paged horizontal ScrollView paints the WRONG page first
 Symptom: coming back to a screen that restores a remembered page, the header
 names one page while the body shows another — and if that other page is empty it
