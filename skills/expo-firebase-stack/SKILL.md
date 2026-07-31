@@ -475,6 +475,13 @@ manual screenshot and every hand-test ran against an unrepresentative state.
 Wait for the thing you are about to act on (the row, the Approve button), never
 for the label of the screen it sits on.
 
+**`isVisible()` is a sample, not a wait.** It answers about this instant and
+returns false for anything a live query has not delivered yet, so a check
+written as `if (!(await x.isVisible())) skip()` silently skips. One role audit
+reported "not a member" for an ADMIN that way — the board was simply two seconds
+behind the nav bar. If the answer decides what the test concludes, use
+`waitFor()` and treat the timeout as the negative result.
+
 ### Sanitise client-side too, or the row renames itself
 If the server normalises a user-supplied name and the client does not, the value
 visibly CHANGES the moment the server writes it back — the file you attached as
@@ -494,6 +501,27 @@ response. Checking "does it contain a slash" lets `application/pdf\r\nX: 1`
 through unchanged, which is a header-injection shape. Match RFC 6838's token
 grammar (`type/subtype`, restricted characters, bounded length) and discard
 anything that does not fit rather than trying to repair it.
+
+### `firebase emulators:exec` can hang AFTER the tests pass
+Symptom: the suite prints its passes, the emulators log "Shutting down", and
+then nothing. The process never exits, so whatever runs it — a battery script,
+CI, an agent — waits forever on a run that actually succeeded. Seen holding a
+session for three hours.
+
+Two consequences worth designing around:
+
+- **Wrap it in a timeout.** `timeout 900 npm run test:emulator` turns a hang
+  into a reported result instead of a stalled pipeline.
+- **Do not read pass/fail from the wrapper's exit code.** A teardown hang killed
+  by a timeout exits 124 while every test passed; treating that as failure sends
+  you hunting a bug that is not there. Grep the runner's own counts out of the
+  log and report the exit code separately.
+
+Leftover emulator processes are the related trap: they hold 8080/9199 and the
+next run dies with "port taken". Kill by matching the process's **cwd** to the
+repo, not by name alone — sibling projects on the same machine run the same
+binaries, and `firebase-tools` does not match the launcher process, which is
+`bin/firebase`.
 
 ### The functions emulator SERIALISES calls to a warm instance — so races vanish
 Fire N concurrent requests at a callable through the emulator and they may run
@@ -955,6 +983,47 @@ const dom  = await page.evaluate(() => document.querySelectorAll('[role="button"
 
 (`page.accessibility.snapshot()` is removed in current Playwright — reach for
 role locators instead.)
+
+### Pager BUTTONS flip the header back and forth; swiping does not
+Symptom: tapping a next/prev arrow makes the header name the new page, snap back
+to the old one, then settle on the new one — a visible stutter on one tap. The
+same move by SWIPE is clean, which is what makes it look like a rendering
+glitch rather than a logic bug.
+
+The button handler does two things: it sets the page state immediately, so the
+header answers the tap, and then calls `scrollTo({ animated: true })`. That
+animation fires `onScroll` every frame, and your handler rounds
+`contentOffset.x / width` back to a page index — which for the first half of the
+animation is still the page being LEFT. So the handler overwrites the state you
+just set, then corrects itself on arrival. A finger never does this, because it
+moves the offset itself and nothing sets the index ahead of it.
+
+Filter the frames a programmatic scroll passes through:
+
+```jsx
+const animatingTo = useRef(null);
+
+function goTo(i) {
+  animatingTo.current = i;
+  setPage(i);                                   // header answers the tap
+  scroller.current?.scrollTo({ x: i * width, animated: true });
+}
+
+function onScroll(e) {
+  const next = Math.round(e.nativeEvent.contentOffset.x / width);
+  if (animatingTo.current !== null) {
+    if (next === animatingTo.current) animatingTo.current = null;
+    return;                                     // ignore the pages in between
+  }
+  if (next !== page) setPage(next);
+}
+// onScrollBeginDrag clears the ref: a finger beats an animation, and without
+// this an interrupted animation leaves the header stuck forever.
+```
+
+**A screenshot cannot catch this** — the settled state is correct. Sample the
+header during the transition instead, collapse consecutive duplicates, and
+assert you see at most two values.
 
 ### A paged horizontal ScrollView paints the WRONG page first
 Symptom: coming back to a screen that restores a remembered page, the header
