@@ -778,6 +778,59 @@ adb shell dumpsys package <applicationId> | grep -oE "android.permission.[A-Z_]+
 adb shell dumpsys activity services <applicationId> | grep -E "isForeground|foregroundServiceType"
 ```
 
+### The app icon you configured is not the icon on the launcher
+
+You set `icon` and `android.adaptiveIcon` in `app.json`, drop the PNGs in
+`assets/`, rebuild, and the launcher still shows the old icon — or Expo's default
+scaffold one. Nothing warns you; the build succeeds.
+
+Same root cause as the config-plugin entry above: **Gradle compiles
+`android/app/src/main/res`, and `app.json` is not consulted at build time.** With
+a committed `android/`, `expo run:android` and `assembleRelease` never re-run
+prebuild, so the mipmaps are whatever was committed. The config keys are inputs
+to a *generator you are no longer running*.
+
+`expo prebuild` would regenerate them — and rewrite `build.gradle` from its
+template, silently reverting hand edits there. A hardcoded `minSdkVersion` is the
+usual casualty, and you find out when the floor you set for a permission-free API
+quietly drops back to Expo's default.
+
+So write the resources yourself, matching exactly what prebuild would emit
+(`@expo/prebuild-config/build/plugins/icons/withAndroidIcons.js` is the
+authority — read it rather than guessing, it is a few hundred readable lines):
+
+- `mipmap-<density>/ic_launcher_foreground.webp` at **108dp** × {1, 1.5, 2, 3, 4}
+- `mipmap-<density>/ic_launcher.webp` and `ic_launcher_round.webp` at **48dp** ×
+  the same scales (round is a circle crop)
+- `mipmap-anydpi-v26/ic_launcher.xml` **and** `ic_launcher_round.xml`, both
+  pointing at `@color/iconBackground` and `@mipmap/ic_launcher_foreground`
+- `<color name="iconBackground">` in `values/colors.xml`
+
+Keep `app.json` in sync anyway, so a future prebuild is a no-op rather than a
+conflict.
+
+**The safe area is 66.67%, not "about two thirds".** The foreground is resized to
+fill the whole **108dp** layer, of which only the central **72dp** survives the
+launcher's mask. On a 1024px canvas that is a safe **radius of 341** — eyeballing
+it at 350 puts 9px of artwork where a circular mask shaves it, which reads as a
+flat edge on one side of a disc. Prove it on pixels rather than arithmetic:
+composite the foreground over the declared background colour, mask with a circle
+inscribed in the inner 72/108, and assert no ink is lost.
+
+Verify on a device, not from the build. The zip listing will not help — resource
+shrinking renames everything to `res/-6.webp` — so install it and read the
+launcher:
+
+```bash
+adb shell input keyevent KEYCODE_HOME && adb shell input swipe 540 2000 540 400 300
+adb exec-out screencap -p > drawer.png     # then actually look at it
+```
+
+A web favicon has the mirror-image trap: `web.favicon` **does** still apply when
+you override Expo's HTML template with your own `public/index.html` — the export
+injects the `<link rel="icon">` into whatever template you supply. Confirm by
+grepping the exported `index.html`, not by reasoning about it.
+
 ### Metro insists a module does not exist, and the file is right there
 
 `The module could not be resolved because none of these files exist`, listing a
