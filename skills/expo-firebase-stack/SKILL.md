@@ -790,10 +790,23 @@ a committed `android/`, `expo run:android` and `assembleRelease` never re-run
 prebuild, so the mipmaps are whatever was committed. The config keys are inputs
 to a *generator you are no longer running*.
 
-`expo prebuild` would regenerate them — and rewrite `build.gradle` from its
-template, silently reverting hand edits there. A hardcoded `minSdkVersion` is the
-usual casualty, and you find out when the floor you set for a permission-free API
-quietly drops back to Expo's default.
+`expo prebuild` would regenerate them — and take the rest of the native project
+with it. **Prebuild defaults to CLEAN**: it deletes the native folder and
+recreates it from the template, and `--no-clean` is the opt-out, not the other
+way round. Hand edits go with it; a hardcoded `minSdkVersion` is the usual
+casualty, and you find out when the floor you set for a permission-free API has
+quietly dropped back to Expo's default.
+
+It clears only the platforms named by `--platform`, so **scoping is what makes it
+safe** — `--platform ios` will not touch a committed `android/`. A bare
+`npx expo prebuild` hits every configured platform. There is a backstop (it bails
+on a dirty git tree when it would delete an existing native folder), but a clean
+tree is exactly when you are most likely to run it.
+
+This asymmetry is worth designing for deliberately: commit the platform that has
+hand edits, gitignore the one that does not, and keep everything the derivable
+one needs in `app.json` — because **nothing changed in Xcode's UI survives a
+regeneration**.
 
 So write the resources yourself, matching exactly what prebuild would emit
 (`@expo/prebuild-config/build/plugins/icons/withAndroidIcons.js` is the
