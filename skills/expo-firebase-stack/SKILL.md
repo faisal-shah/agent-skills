@@ -84,6 +84,42 @@ keytool -list -v -keystore app/android/app/debug.keystore \
 
 The **release** key differs and must be registered separately before shipping.
 
+### `DEVELOPER_ERROR` on Play builds only, and the fingerprint matches
+
+Sign-in works on every build you make and fails only for copies installed from
+Play. You compare the app signing SHA-1 in Play Console against the one
+registered, character by character; it matches. The OAuth client exists in Cloud
+Console. Hours pass, so it is not propagation. Everything is correct and it still
+fails.
+
+**Play App Signing may be enrolled in "quantum-ready" hybrid signing, which is
+not one certificate but three.** The App signing page then lists a **Classical
+key** *and* a **Post-quantum cryptography key**, each with their own SHA-1 and
+SHA-256, and any row under **Previous app signing keys** is a third certificate
+still served to older devices. Google's guidance is that **all of them** must be
+registered with API providers. Register one and the checks all pass while devices
+handed either of the others fail — and the fingerprint anyone would think to
+verify is the one that is already right.
+
+So: read that page and register **every** SHA-1 it shows, not "the app signing
+key". Then, before assuming a stale bundle is at fault:
+
+**A rebuild cannot fix this, and it is worth knowing before you spend a version
+bump on one.** The google-services plugin bakes only `default_web_client_id`,
+`gcm_defaultSenderId`, `google_api_key`, `google_app_id`,
+`google_crash_reporting_api_key`, `google_storage_bucket` and `project_id` into
+the app — **no certificate hashes**. Confirm on any project:
+
+```sh
+cat android/app/build/generated/res/processReleaseGoogleServices/values/values.xml
+```
+
+Fingerprint registration is entirely server-side, so an artifact built before the
+fingerprint was added starts working the moment it is registered. That matters
+because on a store track a re-upload needs a NEW versionCode, so "just rebuild
+it" is a version bump, a changelog entry and a re-review — spent on something
+that was never the cause.
+
 ### "Make internal" greyed out on the OAuth consent screen
 Internal requires the Cloud project to belong to a **Google Cloud organization**.
 A project created under a personal account has none.
