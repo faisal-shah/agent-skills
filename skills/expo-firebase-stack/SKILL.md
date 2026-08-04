@@ -2231,6 +2231,37 @@ await waitUntilGone('no user doc to remain', async () =>
 Re-run a suspected flake several times before and after the change. One green run
 does not distinguish a fix from luck.
 
+### A filled field empties itself, and the error blames the BUTTON
+Playwright `fill()`s a text field, then clicks the submit button, and the click
+times out 30s later reporting that the button is disabled. The button looks
+broken. It is not: the FIELD is empty by the time the click is attempted, and
+the button is gated on the text.
+
+These are controlled React inputs. `fill()` sets the DOM value and dispatches an
+input event, but a Firestore snapshot landing in the same tick makes React
+re-render from state that has not caught up, and the field reverts to empty. It
+bites hardest in seeding/automation loops, where the PREVIOUS write's snapshot
+arrives while you are filling the next value — so the first item succeeds and
+the second hangs, which looks like the form breaking after one use.
+
+**Checking the value right after filling is not enough.** That check passes; the
+wipe happens after it. Retry the whole fill-then-act cycle instead:
+
+```js
+async function fillThen(page, placeholder, value, act) {
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
+    await page.getByPlaceholder(placeholder).fill(value);
+    try { await act({ timeout: 4000 }); return; }   // short timeout is the point
+    catch { await page.waitForTimeout(500); }        // wiped, or still busy — refill
+  }
+  throw new Error(`${placeholder} kept being cleared`);
+}
+```
+
+The short per-attempt timeout is what converts a 30-second dead wait into a
+retry. And apply it to EVERY controlled input in the script, not just the one
+that failed — the others are the same gun, unfired.
+
 ### Confirmation dialogs silently do nothing under Playwright
 Playwright **auto-dismisses** `window.confirm`. Register the handler, and assert
 on the text so the test proves a confirmation was demanded:
