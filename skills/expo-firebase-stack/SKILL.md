@@ -979,6 +979,79 @@ repeat across trains; on macOS it must increase forever and may never repeat. Do
 not assume it can mirror `versionCode`. Git tags may keep a `v` prefix; Apple
 never sees your tags, only the bundle.
 
+## Native touch
+
+### A button in a dialog does nothing, then works on the third tap
+Reported as slowness — "there's no immediate response, sometimes several
+seconds" — because from the outside a tap that is discarded and a tap that is
+slow look identical. It is neither: the taps are being eaten.
+
+The shape is a scrolling container with a text field in it and the button that
+acts on that field. A sheet, a picker with a filter above the rows, an inline
+composer inside a list. You tap the button, nothing happens, you tap again.
+
+`ScrollView`'s default is `keyboardShouldPersistTaps="never"`, and React
+Native's own source says what that does:
+
+> the keyboard is up, `keyboardShouldPersistTaps` is `'never'` (the default),
+> and a new touch starts with a non-textinput target (in which case **the first
+> tap should be sent to the scroll view and dismiss the keyboard, then the
+> second tap goes to the actual interior view**)
+
+The scroll view returns `true` from `onStartShouldSetResponderCapture`, so it
+takes the responder in the **capture** phase and the `Pressable` under the
+finger never becomes responder. `onPress` never runs — and, the tell that
+separates this from every "my handler is slow" theory, **the control never
+shows its pressed state either**.
+
+**Under edge-to-edge on Android it does not stop at one tap.** The guard is "a
+`TextInput` is focused AND a soft keyboard may be open", and the second half is
+`_keyboardMetrics != null`, cleared by `keyboardDidHide` — an event RN does not
+reliably deliver when the IME is tracked through WindowInsets. The keyboard goes
+away, the field keeps focus (the caret is still blinking in it), and the scroll
+view goes on eating taps with nothing on screen to explain why.
+
+Confirm it from a screen recording before changing anything, because "slow" and
+"discarded" need different fixes and the user cannot tell them apart:
+
+- Step through frames and find the touch indicator (enable *Show taps* in
+  developer options). If it is inside the control's bounds, delivery is fine.
+- Sample the control's **fill colour** across the tap. `Pressable` renders a
+  pressed style; measure it rather than eyeballing it. A tap that leaves the
+  fill at full strength never started a press, which is a different bug from a
+  press whose handler took a second.
+- Check whether a caret is still blinking in a field elsewhere on screen. That
+  is the precondition, and it survives the keyboard being dismissed.
+
+The fix is `keyboardShouldPersistTaps="handled"` on every scroller that
+contains controls: a tap a child handles reaches it, a tap nothing handles still
+dismisses the keyboard. `"always"` is right only for a scroller with nothing
+tappable in it.
+
+**Guard it with lint, not a test.** If your e2e is Playwright — and on this
+stack it is, because the web surface is the one a browser can drive — no test
+you can write will see this: it is native responder behaviour with no DOM
+equivalent. A green suite says nothing at all here.
+
+```js
+// eslint.config.mjs — the bar is "say something", not "say handled";
+// `always` is a legitimate answer, silence is not.
+{
+  selector:
+    'JSXOpeningElement[name.name=/^(ScrollView|FlatList|SectionList)$/]' +
+    ':not(:has(JSXAttribute[name.name="keyboardShouldPersistTaps"]))',
+  message: 'Set keyboardShouldPersistTaps — the default eats the next tap.',
+}
+```
+
+Two traps in placing that rule. `no-restricted-syntax` is one rule name, and
+**flat config replaces a rule rather than merging it** — a second block setting
+it over the same files silently disables the first, and `npm run lint` still
+passes. Declare the selector sets as constants and spread every set that applies
+into each block. Then prove the rule can fail: introduce one violation of *each*
+set, see both errors, revert. A green run you have not falsified is not evidence
+the rule is live.
+
 ## react-native-web
 
 ### A control ignores your theme colours
@@ -2423,6 +2496,33 @@ button into view. The screenshot was real; the causal story was invented.
 scroll, tap, or retry, you cannot attribute the result to the fix. Change one
 thing, observe passively, and compare against a before-image captured the same
 way.
+
+### "It's slow" may be "my input was thrown away"
+A discarded tap and a slow handler are indistinguishable from the outside: both
+are a control you touched and a screen that did not change. Users report the
+second because it is the one they have words for, and a profiler then confirms
+some real-but-irrelevant cost and you optimise the wrong thing.
+
+**Before optimising anything a person called slow, establish that the handler
+ran at all.** A screen recording settles it in a minute: find the frame the
+touch lands, then check whether the control ever entered its pressed state —
+measure the fill colour, do not eyeball it. No press state means no handler, and
+no amount of profiling the handler will help.
+
+### A guard you have not falsified is not a guard
+A lint rule, a schema check, a CI assertion — each can be present, well
+commented, and inert. The failure mode is quiet: `no-restricted-syntax` is one
+rule *name*, and ESLint flat config **replaces** a rule rather than merging it,
+so a second config block covering the same files silently disables the first.
+Both rules read correctly in the file. The run is green. Neither is enforcing.
+
+The same applies to a suite nobody invokes, an assertion inside a branch never
+taken, and a check whose subject cannot reach it.
+
+**Introduce one violation of each rule you just wrote, watch it fail, revert.**
+A green run is evidence only after you have seen the red one. When two guards
+share a mechanism, falsify them *separately* — passing is not proof that both
+are live, only that at least one is.
 
 ### Web is not evidence about native, and an emulator is not a device
 `react-native-web` resolves flexbox trees differently, so a screen that renders
