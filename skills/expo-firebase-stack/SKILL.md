@@ -1375,6 +1375,36 @@ what people expect. `BackHandler` is a no-op shim on react-native-web, so it is
 safe to call unconditionally. Browser Back is a *separate* problem: a custom
 stack pushes no history entries.
 
+### Giving every screen a URL makes every screen reachable by every ROLE
+The moment a linking config exists, each registered screen has an address, and
+an address can be requested by anyone signed in. If one navigator holds the
+screens for two populations — staff and members, teacher and student, admin and
+customer — each can now land on the other's.
+
+Nobody types these URLs. **A browser tab outlives the person signed into it.**
+On a shared device the first user finishes on some deep page, signs out, the
+next signs in, and the router restores the stored path under the new account.
+Every query on that screen is then denied, one report per listener, from a
+screen the app never offered.
+
+Security rules still hold, so nothing leaks — which is exactly why this survives
+review. What ships is the *wrong screen*, fully rendered: forms, action buttons,
+headings addressed to someone else, all inert.
+
+**Register only the screens a role may use, and build the linking config from
+the same split.** A path outside the current role then matches nothing and the
+container falls back to the initial route — their own home, which is the right
+answer. Conditional children work directly:
+
+```tsx
+{isMember ? <Stack.Screen name="MyItems" …/> : <>{/* every staff screen */}</>}
+```
+
+Two follow-ons. A screen genuinely used by both goes in a shared table included
+by each, so it is explicit rather than accidental. And an assertion that the
+route merely *renders* is not enough — check the other role's URL yields their
+own home, because "the screen is blank" and "the screen is forbidden" look alike.
+
 ### The keyboard covers the field you are typing into
 Under **edge-to-edge** (`edgeToEdgeEnabled=true`, the default on newer Android)
 two things stop working at once, and neither announces itself:
@@ -1726,6 +1756,54 @@ domain outcome is not a defect.
 benign events is one nobody reads, and then the real report arrives and gets
 scrolled past — the same failure mode as a flaky test suite teaching everyone to
 re-run it.
+
+### Signing out does not unsubscribe first, so the exit raises a denial
+Firestore re-issues every live listen the instant the credential drops, and the
+server refuses them — while the framework is still unmounting the screens holding
+them. The result is a `permission-denied` reported from whatever screen the user
+was on when they left, which is usually the one carrying the Sign out button.
+
+It is not a defect: with no usable session every rule denies by design, so a
+denial in that state carries no information. Publish a flag from the auth
+callback — it runs in the same tick the credential changes, long before a server
+refusal can return over the wire — and have the listener error path consult it:
+
+```ts
+onAuthStateChanged(auth, (user) => { setSessionCanRead(false); /* …then resolve */ })
+// and where claims are published:
+setSessionCanRead(!!profile && claims.status === 'active')
+```
+
+Cover the gated states too, not just signed-out. Being **disabled mid-session**
+is the same shape — the claim flips under a screen that is still subscribed.
+
+Keep it narrow, or it becomes the thing that hides the bug you needed: suppress
+only `permission-denied`/`unauthenticated`, only while the account provably
+cannot read. A denial to a signed-in, ACTIVE user is the interesting kind. Prove
+the scoping by re-running a known real denial with the guard in place and
+watching it still report.
+
+### Report YOUR message for a listener error, not the SDK's
+Hand `captureException` the raw `FirebaseError` from an `onSnapshot` error
+callback and every live subscription in the app collapses into **one** issue,
+titled `Missing or insufficient permissions`, over a stack of minified SDK
+internals (`__PRIVATE_fromRpcStatus`, `PersistentListenStream#onNext`) that names
+no screen, no collection and no query. It is unactionable: you cannot tell which
+of two dozen subscriptions produced it without guessing.
+
+If your live-data hook already takes a label — and it should, for the on-screen
+error — put the label in the **title**, not only in a tag. Tags are per-event;
+grouping is per-message, and grouping is what you read:
+
+```ts
+captureError(new Error(`Live data error (${label}): ${e.code}`),
+             { source: label, code: e.code ?? 'none', detail: e.message });
+```
+
+The SDK frames were never worth reading; the label and the code are the entire
+diagnostic. Same reasoning as sending the uid instead of the email — decide what
+triage actually needs and send that, rather than forwarding whatever the library
+handed you.
 
 ### Send the uid, not the email
 It correlates with your users collection — all triage needs — without putting
@@ -2214,6 +2292,29 @@ Two habits that catch it:
   shipped, all guards at once. Two separate single-guard mutations both came back
   green before the combined one turned red at the real defect.
 
+### Your browser harness collects console.error and misses console.warn
+A failed live subscription typically ends up at `console.warn` — the SDK's own
+listener errors do, and so does most hand-written reporting around them. A
+harness that collects only `console.error` is blind to every one of them, and
+these are exactly the failures that render as an ordinary empty state, so no
+outcome-based check notices either.
+
+Collect a run-wide list of them across every page, and fail on any:
+
+```js
+page.on('console', (m) => {
+  if (m.type() === 'warning' && / listener\b/.test(m.text())) denials.push(m.text());
+});
+// …at the end
+check('not one live subscription was refused in the whole walkthrough', !denials.length);
+```
+
+A denial is never correct in a flow the app itself drives, so this needs no
+per-screen knowledge and catches denials on screens no check ever reads. Where
+some are genuinely expected (a session ending — see the sign-out entry above),
+have the app MARK those in the log line and exclude the marked ones, rather than
+loosening the check.
+
 ### A new test file is never run, and the totals hide it
 A suite invoked by an explicit file list — `vitest run test/a.test.ts test/b.test.ts`
 — silently ignores anything you add. There is a reason to list files (different
@@ -2574,6 +2675,50 @@ When a backend job writes to data that rules protect:
 Corollary worth probing: rules often permit a state your *client* prevents. If the
 UI blocks submitting while a session is still running, verify the rules do too, or
 that state will arrive eventually through a retry, a stale tab, or another client.
+
+### A `get` on an ABSENT document is refused, not answered "no"
+`resource` is **null** for a document that does not exist, so any rule arm that
+dereferences `resource.data` is an evaluation *error* on that read — and an
+evaluation error is a denial. The client cannot tell it apart from "you may not
+see this": both arrive as `permission-denied`.
+
+That matters because *asking about an absent document is often the normal case*.
+"Is this user a member of this group?" against `memberships/{userId}_{groupId}`
+is a yes/no question whose answer is usually no — and every "no" comes back as a
+permission denial, one per row, on a screen that is working exactly as intended.
+
+```
+// denies for a non-member — resource is null, so resource.data throws
+allow get: if request.auth.uid in
+  get(/databases/$(db)/documents/groups/$(resource.data.groupId)).data.ownerUids;
+```
+
+**Ask it as a constrained list instead.** A list never evaluates against a null
+resource — an absent document simply is not in the result set:
+
+```ts
+query(collection(db, 'memberships'),
+      where('groupId', '==', groupId), where('userId', '==', userId))
+```
+
+The `groupId` equality is what keeps the rule affordable (every returned row
+resolves the *same* parent `get()`, one document-access call however large the
+group), and the second equality keeps the answer to one row. Equality-only
+filters need no composite index.
+
+The alternative — allowing the missing-document read with `resource == null` —
+is right only when there is nothing there to leak. It suits a self-keyed row the
+caller is about to create (`progress/{uid}_{itemId}`: no document, and the id is
+one they already know). It is wrong wherever **existence is itself the private
+fact**, because then the denial *is* the answer: whoever can read the absent ones
+can probe any pair and read "denied" as yes.
+
+Two things make this expensive to find. It fails **loudly but harmlessly** — the
+screen renders correctly, because "refused" and "absent" both mean the row draws
+nothing — so it shows up only as an error banner and a stream of Sentry events
+from a feature nobody has reported. And an outcome-based end-to-end assertion
+("the empty state appears") passes either way; the assertion that catches it is
+the **absence of the error surface**, not the presence of the right text.
 
 ### Claims changes do not evict a live session
 `setCustomUserClaims` updates the token *next time one is minted*. An ID token
