@@ -979,6 +979,116 @@ repeat across trains; on macOS it must increase forever and may never repeat. Do
 not assume it can mirror `versionCode`. Git tags may keep a `v` prefix; Apple
 never sees your tags, only the bundle.
 
+### `pod install`: a Swift pod "cannot yet be integrated as a static library"
+
+```
+[!] The following Swift pods cannot yet be integrated as static libraries:
+The Swift pod `AppCheckCore` depends upon `GoogleUtilities` and
+`RecaptchaInterop`, which do not define modules.
+```
+
+Expo's autolinker already fixes this class of error for you — but only **one
+level deep**. `autolinking_manager.rb` calls `use_modular_headers_for_dependencies`
+on the direct dependencies of each Expo module's podspec, so a Swift pod two
+levels down is never reached:
+
+```
+ExpoAdapterGoogleSignIn        <- an Expo module, so Expo processes it
+  └─ GoogleSignIn              <- gets modular headers
+      └─ AppCheckCore          <- Swift pod, NOT covered
+          ├─ GoogleUtilities       <- ships no module map, never gets one
+          └─ RecaptchaInterop      <- same
+```
+
+Fix it with `expo-build-properties`, naming only the pods that actually lack the
+maps. This is the remedy CocoaPods itself prints, and it survives prebuild
+because it lives in `app.json` rather than in the generated `Podfile`:
+
+```json
+["expo-build-properties", {
+  "ios": { "extraPods": [
+    { "name": "GoogleUtilities",  "modular_headers": true },
+    { "name": "RecaptchaInterop", "modular_headers": true }
+  ]}
+}]
+```
+
+**Do not reach for `ios.useFrameworks: "static"` first**, even though it is the
+answer most search results give. It relinks *every* pod in the project, and
+Expo's own docs warn that React Native's precompiled xcframeworks can fail under
+it — `forceStaticLinking` exists purely to mop that up. There are also plenty of
+reports of it not fixing this error at all. Scope the fix to the pods that need
+it.
+
+### The archive SUCCEEDS and contains no app
+
+`xcodebuild archive` prints `** ARCHIVE SUCCEEDED **`, then the export fails with
+something that names nothing useful:
+
+```
+error: exportArchive exportOptionsPlist error for key "method":
+       expected one {} but found app-store-connect
+```
+
+The empty set `{}` is the tell: **there are no valid export methods, because the
+archive holds no app.** You archived a *pod*.
+
+Discovering the scheme from the **workspace** is what does it. Before pods
+integrate there is barely a workspace at all; afterwards it carries a scheme for
+every pod — well over a hundred — so anything taking `schemes[0]` gets whichever
+sorts first alphabetically (`AppAuth`, in any Google-Sign-In app). Archiving a
+static library succeeds perfectly and quietly.
+
+Ask the **app project** instead, which knows exactly one scheme:
+
+```bash
+PROJECT="$(find ios -maxdepth 1 -name '*.xcodeproj' | head -1)"  # Pods.xcodeproj is deeper
+xcodebuild -project "$PROJECT" -list -json                       # .project.schemes, NOT .workspace.schemes
+```
+
+Then assert the result, because this failure is silent by construction:
+
+```bash
+[ -d "$ARCHIVE/Products/Applications" ] || die "archive contains no app — wrong scheme"
+```
+
+### `-allowProvisioningUpdates` fails with "Cloud signing permission error"
+
+```
+error: exportArchive Cloud signing permission error
+error: exportArchive No signing certificate "iOS Distribution" found
+error: exportArchive No profiles for '<bundle id>' were found
+```
+
+The archive is fine. **The App Store Connect API key lacks the role needed to
+create a distribution certificate.** Certificates, Identifiers & Profiles is
+reachable over the API only by an **Admin** key — App Manager and Developer
+cannot touch it, however well they upload builds.
+
+The tell is on the build machine, and it reads like "signing is broken" when it
+is really "this key may only sign for debugging":
+
+```bash
+security find-identity -v -p codesigning
+#   "Apple Development: Created via API (KEYID)"   <- the key works...
+#   (no Apple Distribution entry at all)           <- ...but only for development
+```
+
+A key that has created *development* certificates and no distribution one is a
+role problem, not a broken key or a bad `.p8`. Give it Admin in App Store Connect
+→ Users and Access → Integrations; if the role cannot be edited after creation,
+generate a new Admin key. Only the key id changes — nothing in the repo does.
+
+Two things that save a rebuild here:
+
+- **Prove the fix in seconds**, not in another twenty-minute archive: re-export
+  the archive you already have with `destination: export` in the options plist.
+  It exercises exactly the step that failed and uploads nothing.
+- **A cloud-managed distribution certificate does not persist in the keychain.**
+  After a successful export, `security find-identity` still shows no distribution
+  identity. That is expected — it is fetched for the export and discarded — so do
+  not read its absence as failure.
+
 ## Native touch
 
 ### A button in a dialog does nothing, then works on the third tap
@@ -2625,6 +2735,22 @@ survives in the binary `AndroidManifest.xml` string pool, so a few lines of
 Python prove which release the bytes are. Then check the uploaded asset's byte
 size equals the local file's. A rolling-tag asset looks identical before and
 after a publish; size and timestamp are the only evidence it moved.
+
+### A build tool can succeed loudly on the WRONG target
+`** ARCHIVE SUCCEEDED **` is not evidence that your app was archived. The scheme,
+target and product are all inputs *you* supplied — ask a build system for a
+static library and it will build one, perfectly, and congratulate you. The
+resulting archive contained no app at all, and the only complaint arrived one
+step later, from a different tool, about a plist key.
+
+The general shape: **a success message is scoped to what the tool was asked to
+do, never to what you meant.** Wherever a step names the thing it will act on — a
+scheme, target, variant, flavour, project — echo that name in the log and assert
+it is the one you expect, in the same breath as asserting the output exists.
+`[ -d "$ARCHIVE" ]` passed happily. `[ -d "$ARCHIVE/Products/Applications" ]` is
+the check that carried meaning. Existence checks on an output path are the
+weakest possible assertion: prefer one that would fail if the *content* were
+wrong.
 
 ### A test hook on a `.web.tsx` seam covers ONE layout, silently
 A platform seam (`Foo.tsx` / `Foo.web.tsx`) is two files. A `testID` — or a raw
