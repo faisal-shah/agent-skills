@@ -1499,10 +1499,16 @@ Two traps:
   gone by the **content-type** (`text/html` = fine), never the status code. The
   same rewrite hides any missing-asset 404 behind a 200.
 
-An **organization** auth token (`sntrys_…`, org-scoped) uploads to every project
-in the org — reuse one across apps rather than minting per project. Point
-`sentry-cli` at it with `SENTRY_PROPERTIES=<gitignored sentry.properties>` and
-override `--project` per surface; the token never has to pass through your shell.
+An **organization** auth token (`sntrys_…`) reaches every project in the org, so
+reuse one across apps and surfaces rather than minting per project; only the
+project differs. Scope it to CI/release permissions only — a token that cannot
+read the org is the right shape for a build secret, and you can confirm what it
+holds by probing: release endpoints answer `200` while org-level ones answer
+`403`. Sentry shows a token's value **once**, at creation, so whatever copy you
+saved is the only one.
+
+Where that token lives — a gitignored properties file or the environment — is a
+real choice with real trade-offs; see below.
 
 ### `@sentry/react-native` source maps need a release build AND the Gradle plugin
 Native upload only runs on `assembleRelease`, and only if the Sentry Gradle
@@ -1510,6 +1516,78 @@ plugin is applied — which the config plugin does at `prebuild`. In the bare
 workflow (committed `android/`, no prebuild) a `sentry.properties` alone uploads
 nothing. Runtime error *reporting* still works; only symbolication waits. This is
 a first-release concern, not a first-wire one.
+
+**The remedy, since the config plugin can never reach a committed `android/`:**
+apply the package's own Gradle script by hand, and gate it on the token so a
+machine without one builds exactly what it built before.
+
+```gradle
+// android/app/build.gradle, above the react block
+if (System.getenv("SENTRY_AUTH_TOKEN")) {
+    apply from: new File(["node", "--print",
+        "require.resolve('@sentry/react-native/package.json')"]
+        .execute(null, rootDir).text.trim(), "../sentry.gradle")
+}
+```
+
+The gate is not politeness. Without it the release path acquires a dependency on
+reaching sentry.io, and a network blip fails a build that has nothing to do with
+Sentry. With it, absence is a no-op.
+
+**Prove the gate rather than assuming it**, because both states look like a
+successful build:
+
+```sh
+./gradlew :app:tasks --all -q | grep -c SentryUpload   # 0 without, ≥1 with
+```
+
+Expect `0` with no token and a `…_SentryUpload_…` task with one. The task name
+also contains the release it will upload under — check it matches what the SDK
+reports at runtime, or the maps attach to a release nothing was reported against.
+
+### An iOS config plugin writes its options into the app package
+Register `@sentry/react-native/expo` (or equivalently `@sentry/react-native` —
+`app.plugin.js` is one line re-exporting it) **bare, with no options**. Given
+`organization`/`project` it writes them verbatim into `ios/sentry.properties`,
+and its own source warns that an `authToken` option "will be written to the
+application package". Bare, it falls back to `SENTRY_ORG`, `SENTRY_PROJECT` and
+`SENTRY_AUTH_TOKEN` from the build environment — which is also how `sentry-cli`
+reads them on the Android side, so one set of names covers both platforms.
+
+### Where to keep the token: a file or the environment, and why it is a real choice
+Both are defensible and the failure modes differ, so pick one per repo rather
+than drifting into both:
+
+- **A gitignored `sentry.properties`** keeps the token out of your shell history
+  and out of every child process's environment. `SENTRY_PROPERTIES=<path>` points
+  the CLI at it.
+- **Environment variables** cannot be committed by accident. In a **public** repo
+  that is the deciding argument: a gitignored secret is one `git add -f` or one
+  careless `.gitignore` edit away from permanent publication, and a public repo's
+  history cannot be unpublished.
+
+Two mechanisms for the same three values is the outcome to avoid — they drift,
+and the one you are not looking at is the one that is stale.
+
+### Renaming a Sentry project breaks `SENTRY_PROJECT`, not the DSN
+A DSN carries the **numeric** project id, so renaming a project's slug does not
+affect any shipped app: no rebuild, no redeploy, no client config change.
+`sentry-cli` addresses projects by **slug**, so `SENTRY_PROJECT` must follow in
+every build shell and CI config the moment you rename.
+
+Worth knowing because the natural first name goes stale: a project called
+`…-android` starts receiving iOS events the day an iOS target appears, and the
+name then actively misleads whoever reads the next crash report.
+
+### Never backfill source maps for an already-shipped build
+Rebuilding an old version to "add the maps we forgot" produces a *different*
+bundle unless the tree is byte-identical — and a stamped commit hash alone is
+enough to change it. The maps upload against that version's release name, so
+Sentry then symbolicates the shipped build to lines from a bundle nobody is
+running, confidently and with no warning.
+
+That is worse than no maps at all: unsymbolicated frames announce themselves,
+wrong ones do not. The first upload belongs to the next release.
 
 ### Serverless events never arrive
 The instance can freeze the moment the handler resolves. `await Sentry.flush(...)`
