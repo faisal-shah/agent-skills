@@ -195,6 +195,72 @@ require upgrading the project to Identity Platform.
 
 ## Firebase emulators
 
+### The emulators "start", then die with a Java error
+
+```
+Emulator UI → http://127.0.0.1:4000
+...
+Error: Process `java -version` has exited with code 1.
+Please make sure Java is installed and on your system PATH.
+```
+
+The banner is printed by your own script *before* firebase gets as far as the
+Java check, so this reads like the emulators came up and then crashed. They never
+started at all — Firestore and Auth are Java processes.
+
+**On macOS, `command -v java` cannot tell you whether Java is installed.**
+`/usr/bin/java` always exists, as a stub that exits 1 with "Unable to locate a
+Java Runtime". So every `if command -v java` guard passes on a machine with no
+JDK whatsoever. The only honest check runs it:
+
+```bash
+java -version >/dev/null 2>&1 || echo "no working JDK"
+```
+
+Two corollaries, both learned the expensive way:
+
+- **Resolve the JDK in ONE file that every script sources.** Three scripts each
+  carrying the same two-branch lookup (`$MY_JDK_HOME`, then `~/opt/jdk-21`) means
+  a machine that has neither fails in three places with one cause and three
+  different-looking symptoms. A `/usr/libexec/java_home -v 21` fallback, plus the
+  Homebrew and Android-Studio-bundled JDKs, covers most developer Macs.
+- **Fail with the list of places you looked.** "No working JDK 21 found; checked
+  A, B, C" is repairable in seconds. Firebase's version of the message arrives
+  later, from a different program, and names none of your configuration.
+
+### Wiping the emulators does NOT sign the app out
+
+You reset the emulators, re-seed, relaunch the app — and it sits on a "wrong
+account" or "not provisioned" screen with nothing but a Sign out button. It reads
+as the domain check or the approval gate being broken.
+
+It is neither. **Auth persistence lives on the CLIENT and outlives the backend.**
+On React Native the JS SDK persists the session to AsyncStorage — configured
+deliberately, because without it every app restart signs the user out — so after
+a wipe the app still holds a token for a uid the fresh Auth emulator has never
+heard of. The account exists to the client and not to the server, and every
+"auth account with no user doc" branch correctly reads that as a rejected
+sign-in.
+
+**The first run always works, which is what makes it confusing**: a seed that
+mints new uids guarantees the mismatch from the SECOND run onward.
+
+Clear the app's storage whenever you wipe the backend, so client and server are
+the same age:
+
+```bash
+# iOS simulator — the DATA container, not the bundle
+xcrun simctl terminate <sim> <bundle-id>
+D=$(xcrun simctl get_app_container <sim> <bundle-id> data)
+rm -rf "${D:?}/Documents" "${D:?}/Library"     # :? so an empty D cannot rm -rf /Documents
+
+# Android emulator
+adb shell pm clear <package>
+```
+
+Any script that resets emulators should do this in the same breath, rather than
+leaving it to be rediscovered at the next confusing screen.
+
 ### Writes succeed, triggers log success, client says the doc does not exist
 The listener even reports a *server* snapshot (`fromCache=false`).
 
@@ -1088,6 +1154,55 @@ Two things that save a rebuild here:
   After a successful export, `security find-identity` still shows no distribution
   identity. That is expected — it is fetched for the export and discarded — so do
   not read its absence as failure.
+
+### `expo run:ios` exits 1 on a build that actually worked
+
+The app compiles, signs and installs on the simulator — and the command still
+fails, with a stack that names nothing you did:
+
+```
+at isSimulatorAppRunningAsync (.../ios/ensureSimulatorAppRunning.js)
+at osascriptSpawnAsync (.../@expo/osascript/build/index.js)
+```
+
+Its **last** act is raising the Simulator window through AppleScript, which is
+not permitted from a non-GUI shell — CI, an agent, an ssh session. Everything
+that matters already happened before it.
+
+**Never gate on that exit code.** Verify the install, and launch through
+`simctl`, which needs no automation permission:
+
+```bash
+npx expo run:ios --device "iPhone 17 Pro" || true
+xcrun simctl get_app_container "iPhone 17 Pro" com.example.app >/dev/null 2>&1 || exit 1
+xcrun simctl launch "iPhone 17 Pro" com.example.app
+```
+
+This is the same shape as the archive that succeeds on the wrong target: the
+exit code describes the tool's last step, not your goal. Assert the artefact.
+
+### Driving a simulator's UI: `simctl` has no tap
+
+`xcrun simctl` boots, installs, launches, screenshots and `openurl`s — but it
+cannot **tap, swipe or type**. Scripting a UI flow needs `idb`, and two things
+about it cost an afternoon:
+
+- **`idb_companion` must be launched by its real path, never a symlink.** It
+  resolves its sibling `Frameworks/` through `@rpath`, which a symlink on `PATH`
+  breaks. Use a wrapper script that `exec`s the real binary.
+- **`IDB_COMPANION` is a socket address, not a path to the binary.** Pointing it
+  at the executable fails with `Socket operation on non-socket`. Run
+  `idb_companion --udid <UDID>`, read the `grpc_port` it prints, then
+  `idb connect localhost <port>`.
+
+Coordinates are in **points, not pixels** — divide screenshot pixels by the
+device scale factor (3 on a modern iPhone) or every tap lands off-screen.
+
+Best of all, `idb ui describe-all` returns the accessibility tree with
+`AXLabel`s. Assert against those rather than coordinates: it is stable across
+device sizes, and it is the only automated way to check that **icon-only
+controls actually carry the labels they are supposed to** — something a
+screenshot test can never see.
 
 ## Native touch
 
