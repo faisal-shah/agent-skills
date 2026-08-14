@@ -1844,6 +1844,56 @@ running, confidently and with no warning.
 That is worse than no maps at all: unsymbolicated frames announce themselves,
 wrong ones do not. The first upload belongs to the next release.
 
+### "Slow operation" alerts that are really the file picker or the document viewer
+A wrapper that times a user action from tap to settle will charge it for time the
+app was not even on screen. Every expo module that shows system UI resolves its
+promise from `onActivityResult`:
+
+| API | Held until |
+|---|---|
+| `DocumentPicker.getDocumentAsync` | a file is chosen, or the user backs out |
+| `ImagePicker.launchCameraAsync` | the shot is framed, taken and confirmed |
+| `IntentLauncher.startActivityAsync` | the viewer activity **finishes** |
+| `Sharing.shareAsync` | the chooser is dismissed |
+
+`IntentLauncherModule.kt` and `SharingModule.kt` both stash the promise before
+`startActivityForResult` and resolve it from the result callback — so "open this
+PDF" does not settle until the reader closes the PDF. Measured on an emulator: a
+file attached after ~33s in the picker reported `took 37992ms`; a document left
+open 21s reported `took 20935ms`, exactly **100ms after Back was pressed**; a
+camera attach with permission and framing ran 104s. A *cancelled* pick reported
+too — a slow write for a write that never happened.
+
+The trap is that the wrapper is usually right. Timing a whole action is correct
+for a database write, and the same wrapper typically also drives a `busy` flag —
+which *should* cover the picker, so the control stops taking taps. The two spans
+look like one and are not.
+
+```ts
+// The callback gets a helper for regions whose duration is not yours.
+await run(async (untimed) => {
+  const picked = await untimed(() => pickAttachment(source));   // a human
+  if (!picked) return;
+  await setDoc(ref, meta);                                      // charged
+  await untimed(() => uploadBytes(ref, picked.blob));           // size, not you
+  await finalize({ id });                                       // charged
+});
+```
+
+Exclude the byte transfer for the same reason as the human: its duration is set
+by file size and uplink, and a flat threshold written for a metadata write is the
+wrong instrument. What is left charged — writes and callables — is the part that
+should be fast regardless, which is the property worth alerting on. Report the
+excluded total alongside, so a report is not quietly hiding time.
+
+**The tell that this is your bug and not real latency:** the breadcrumbs show
+`MainActivity` going `created → started → resumed` shortly before the report,
+with `Running "main"` alongside. That is the activity being re-created on the way
+back from the picker, not an app restart.
+
+Do not answer it by raising the threshold. That is the tempting fix, it works
+once, and it leaves you tuning a number against a measurement you know is wrong.
+
 ### Serverless events never arrive
 The instance can freeze the moment the handler resolves. `await Sentry.flush(...)`
 before returning. Exclude expected domain errors (`HttpsError`) or real defects
