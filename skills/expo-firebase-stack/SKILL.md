@@ -1181,11 +1181,49 @@ xcrun simctl launch "iPhone 17 Pro" com.example.app
 This is the same shape as the archive that succeeds on the wrong target: the
 exit code describes the tool's last step, not your goal. Assert the artefact.
 
+### One failed UI-test flow wedges every later `simctl` for ten minutes
+
+A UI flow fails. From then on **everything** simulator-related hangs — the
+screenshot of that very failure, the reset after it, the next whole run — and
+each hang looks like its own separate problem. `xcrun simctl list` simply never
+returns.
+
+The cause is a single process, worth knowing by name:
+
+```
+simctl diagnose -l -b --timeout=600 ... /Logs/Test/….xcresult/…/Diagnostics
+```
+
+On failure the XCUITest runner driving the simulator (Maestro's, and it will not
+be alone) collects simulator diagnostics, and that dump **holds CoreSimulator for
+up to 600 seconds**. Nothing announces it; you observe a machine that has
+apparently gone bad, and "the simulator is flaky" becomes the diagnosis instead
+of one lock with a name.
+
+Reap it in the failure path, BEFORE gathering any evidence of your own:
+
+```bash
+pkill -9 -f "simctl diagnose"; pkill -9 -f maestro-driver-ios
+pkill -9 -f com.apple.CoreSimulator.CoreSimulatorService   # only if still stuck
+```
+
+**The general lesson outlives the tool: a failure handler blocked by the
+failure's own cleanup.** The screenshot-on-failure was defeated by the thing that
+ran *because* of the failure. Any harness gathering evidence after something goes
+wrong deserves that check, on any platform.
+
+And bound every `simctl` call — an unbounded `execFileSync` turns a ten-minute
+lock into a suite that never returns, which is strictly worse than one that
+fails.
+
 ### Driving a simulator's UI: `simctl` has no tap
 
 `xcrun simctl` boots, installs, launches, screenshots and `openurl`s — but it
-cannot **tap, swipe or type**. Scripting a UI flow needs `idb`, and two things
-about it cost an afternoon:
+cannot **tap, swipe or type**. Scripting a UI flow needs a driver. Prefer a
+maintained one: **idb's last release is 2022** and its companion degrades mid-run
+against modern iOS — a tap returns exit 0 and does nothing, which is the worst
+failure mode a harness can have. Two things about idb cost an afternoon before
+that became clear:
 
 - **`idb_companion` must be launched by its real path, never a symlink.** It
   resolves its sibling `Frameworks/` through `@rpath`, which a symlink on `PATH`
