@@ -2213,6 +2213,28 @@ ls android/app/build/generated/res/processReleaseGoogleServices/values/values.xm
 Keep `googleServicesFile` in `app.json` anyway, so a future prebuild agrees with
 the committed files instead of silently diverging.
 
+### The MODULE still autolinks — you probably do not need a prebuild
+Easy to over-correct from the above and conclude that adding a notifications
+library to a bare workflow means regenerating `android/`. It does not. Config
+plugins and native modules arrive by different routes:
+
+- **The module** is picked up by expo-modules autolinking at Gradle time, from
+  `package.json`. No prebuild involved.
+- **The config plugin** is what needs prebuild — and for a notifications library
+  it typically contributes only a default notification icon and colour.
+
+So `npx expo install <notifications-lib>` and rebuild. Do not take
+`BUILD SUCCESSFUL` as proof it linked; grep the merged manifest, where the
+library's own services will have been merged in:
+
+```bash
+grep -o "com.google.firebase.messaging[A-Za-z.]*" \
+  android/app/build/intermediates/merged_manifest/debug/*/AndroidManifest.xml
+```
+
+Absent means autolinking did not see it. Present means the receiver that will
+wake your app is registered — which `BUILD SUCCESSFUL` never told you.
+
 ### Store tokens as a subcollection, never an array field
 `users/{uid}/pushTokens/{token}` — the token is the document id.
 
@@ -2453,6 +2475,48 @@ check can and cannot prove: a string being *present* does not mean its code is
 reachable — dev-only UI is compiled into release bundles too, and what actually
 gates it is the build-time flag substitution (an absent `EXPO_PUBLIC_*` **name**
 means it was inlined and folded, which is the thing worth asserting).
+
+### Your cleanup missed the documents that have no document
+Listing a collection returns its **documents**. A path that exists only as the
+parent of a subcollection is not one of them — Firestore has no requirement that
+`users/{uid}` exist for `users/{uid}/devices/{token}` to. So the usual
+between-tests cleanup —
+
+```ts
+const snap = await db.collection('users').get();
+await Promise.all(snap.docs.map(async (d) => {
+  const kids = await d.ref.collection('devices').get();   // never runs for a
+  await Promise.all(kids.docs.map((k) => k.ref.delete())); // parentless path
+  await d.ref.delete();
+}));
+```
+
+— silently leaves behind exactly the rows belonging to the users who have a
+subcollection and no document, which is the interesting population: the ones who
+never touched the screen that creates the parent.
+
+The leftovers then make the NEXT test look like a code bug — an idempotency
+marker that appears already claimed, a device list that is longer than it should
+be. The console shows them (it renders parentless paths in italics); a list query
+does not.
+
+```ts
+await db.recursiveDelete(db.collection('users'));   // Admin SDK
+```
+
+Same trap when counting: a "how many users have registered a device" query
+against the parent collection undercounts for the same reason.
+
+### Test files sharing one emulator must not run in parallel
+Two test files that each call `clearFirestore()` in `beforeEach` will wipe each
+other's seed mid-run when the runner parallelises files. The failures are
+plausible-looking permission denials and missing documents, they move between
+runs, and each file passes alone — which reads as flakiness in the emulator
+rather than in the invocation.
+
+Runners default to parallel. Pin it in the script, not in your memory of how to
+invoke it: `vitest run --no-file-parallelism`. If a suite passes file-by-file and
+fails together, check this before anything else.
 
 ### A seed or test silently did nothing, repeatedly
 Duplicate records, or an approval loop that approved nobody.
@@ -2744,6 +2808,31 @@ trigger test is weak".
 
 General form: before concluding a test is wrong, confirm the artefact under test
 is the artefact you edited — and know which artefact each test actually loads.
+
+### …and the worse sibling: nothing built it at all
+The entry above assumes a build ran and failed. Check the likelier case first:
+**`firebase emulators:exec` does not build anything.** If the script that starts
+the emulators does not build the functions itself, the triggers under test are
+whatever was last compiled — possibly days ago, possibly by a different branch.
+
+It presents identically to the failed-build case except there is no error to
+find, so you go looking for a tsc failure that never happened. And it never goes
+red on its own: the suite passes against yesterday's triggers exactly as
+confidently as against today's.
+
+Symptom worth recognising: an in-process test and a trigger test disagree about
+the same change, the in-process one being right. That is the same half-poisoned
+suite as above, from a different cause.
+
+```bash
+# in the script that starts the emulators, before emulators:exec
+npm run build -w <shared-package>
+npm run build -w functions
+```
+
+Cheap check on any repo you did not write: compare the mtime of
+`functions/lib/index.js` against `functions/src`. If the bundle is older, every
+trigger assertion in that suite has been decorative.
 
 ### Wait on the EVENT, not on a number derived from it
 `waitFor(() => total === before - 64)` passed against code that recorded
