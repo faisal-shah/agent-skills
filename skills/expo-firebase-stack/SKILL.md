@@ -2257,6 +2257,68 @@ holding a token grants nothing on its own.
 Nobody else may read the collection either, admins included: which devices a
 person carries is not administrative data.
 
+### Web push: `register()` resolving is not a worker running
+`navigator.serviceWorker.register()` resolves when the script has been
+**fetched**, not when a worker is active. Hand that registration to `getToken`
+and it throws:
+
+```
+AbortError: Subscription failed - no active Service Worker
+```
+
+Only on a first-ever visit — every later load already has one activated, so it
+reproduces for new users and never for you.
+
+```ts
+await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+const registration = await navigator.serviceWorker.ready;   // ← the one to pass
+```
+
+And bound it. **`ready` never rejects**: a worker that fails to activate leaves
+it pending forever, so a naive await gives you a settings screen stuck on
+"checking" with no error and no notice — worse than either success or failure,
+because it looks like it is still working.
+
+```ts
+const registration = await Promise.race([
+  navigator.serviceWorker.ready,
+  new Promise<null>((r) => setTimeout(() => r(null), 10_000)),
+]);
+if (!registration) return null;
+```
+
+### You cannot mint a web push token in Playwright — do not read that as a bad key
+Two independent walls, and both look exactly like a rejected VAPID key:
+
+- **Headless** leaves `Notification.permission` reading `"denied"` however
+  `requestPermission()` resolves, and the SDK reads the property:
+  `messaging/permission-blocked`. Headed under `xvfb-run` reports `granted`.
+- **Playwright's Chromium is the open-source build**, which ships without the
+  Google API keys needed to reach FCM's push service:
+  `AbortError: Registration failed - permission denied` from
+  `PushManager.subscribe`. `channel: 'chrome'` does not rescue it either.
+
+So web delivery has no automated check. What you CAN automate, with no browser
+at all:
+
+```js
+// A VAPID public key is an uncompressed P-256 point: 65 bytes, leading 0x04.
+const raw = Buffer.from(key.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+ok(raw.length === 65 && raw[0] === 0x04);
+
+// And a send to a bogus token proves FCM authenticated you AS THIS PROJECT —
+// Cloud Messaging disabled or wrong credentials fail differently and earlier.
+const res = await admin.messaging().sendEachForMulticast({ tokens: [bogus], … });
+ok(res.responses[0].error?.code === 'messaging/registration-token-not-registered');
+```
+
+That second assertion doubles as a check on your prune list: it pins the dead-token
+code to one FCM really returns, rather than one copied from documentation.
+
+Android is different — an emulator with Google APIs mints a real token and
+receives a real notification, so the whole chain **is** verifiable there. Do that
+before concluding anything about your server code from a browser failing.
+
 ### Unregister on sign-out
 A push targets the **device**, not the session. Skip this and a shared or
 handed-on phone keeps receiving the previous account's notifications — a
