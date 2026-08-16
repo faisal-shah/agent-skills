@@ -1155,6 +1155,75 @@ Two things that save a rebuild here:
   identity. That is expected — it is fetched for the export and discarded — so do
   not read its absence as failure.
 
+### The App Store Connect key is not only an upload credential
+
+It is natural to gate the key behind the flag that decides whether to upload,
+because that is what its name suggests it is for:
+
+```bash
+if [ "$UPLOAD" = true ]; then          # WRONG
+  : "${ASC_KEY_PATH:=$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8}"
+fi
+xcodebuild ... -allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" ... archive
+```
+
+**`-allowProvisioningUpdates` mints and downloads the signing assets THROUGH that
+key**, so the *archive* needs it exactly as much as the upload does. Without it
+the archive falls back to whatever is already in the keychain — which, on a
+machine where the distribution certificate is cloud-managed, is nothing.
+
+Resolve the key for every build; gate only the genuinely upload-specific checks:
+
+```bash
+if [ -n "${ASC_KEY_ID:-}" ]; then      # every build
+  : "${ASC_KEY_PATH:=$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8}"
+fi
+if [ "$UPLOAD" = true ]; then          # only the upload needs the issuer id
+  [ -n "${ASC_ISSUER_ID:-}" ] || die "..."
+fi
+```
+
+The reason this survives review: the *uploading* path is the one everybody runs,
+and it works. A `--no-upload` or `--dry-run` route can be broken from the day it
+was written and nothing notices, because the only person who would run it is
+someone deliberately trying not to ship.
+
+### An empty bash array under `set -u` is "unbound" on every Mac
+
+macOS ships **bash 3.2** — frozen at the last GPLv2 release, and still what
+`#!/usr/bin/env bash` finds unless someone installed another. In 3.2, expanding
+an *empty* array counts as unbound:
+
+```bash
+set -euo pipefail
+AUTH=()
+xcodebuild ... "${AUTH[@]}"     # -> AUTH[@]: unbound variable, and the script dies
+```
+
+The message names a variable that is right there, declared, four lines up — so it
+reads as a typo or a scoping bug rather than what it is. Bash 4.4 and later
+expand it to nothing, as intended, which means **it cannot be reproduced in any
+shell newer than the one every Mac actually runs**, including whatever your CI
+image has.
+
+Use the `+` form, which expands to nothing when the array is empty:
+
+```bash
+xcodebuild ... ${AUTH[@]+"${AUTH[@]}"}
+```
+
+Two multipliers worth knowing. `shellcheck` does not flag it — the code is valid,
+it is the runtime that differs. And it only fires on the branch where the array
+is genuinely empty, so the usual shape is a script that has worked for months
+failing the first time someone takes the unusual path.
+
+To prove a fix here, run the two forms rather than reasoning about them:
+
+```bash
+bash -c 'set -u; A=(); printf "%s" "${A[@]}"'          # bash: A[@]: unbound variable
+bash -c 'set -u; A=(); printf "%s" ${A[@]+"${A[@]}"}'  # (nothing, exit 0)
+```
+
 ### `expo run:ios` exits 1 on a build that actually worked
 
 The app compiles, signs and installs on the simulator — and the command still
