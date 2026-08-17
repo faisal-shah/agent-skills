@@ -1155,6 +1155,63 @@ Two things that save a rebuild here:
   identity. That is expected — it is fetched for the export and discarded — so do
   not read its absence as failure.
 
+### `errSecInternalComponent` twenty minutes in: the Mac is headless
+
+The archive gets past prebuild, `pod install` and every compiled target, then
+dies at the **first framework it signs**:
+
+```
+Code Signing …/YourApp.app/Frameworks/SomeFramework.framework
+  with Identity Apple Development: Created via API (…)
+…/SomeFramework.framework: errSecInternalComponent
+Command PhaseScriptExecution failed with a nonzero exit code
+** ARCHIVE FAILED **
+```
+
+Nothing there names a keychain, and the entry above trained you to read a
+signing message as a provisioning problem. It is neither. **The login keychain
+unlocks at GUI login, and an ssh session never has one**, so `codesign` can read
+the certificate — public data — while the private key is out of reach.
+
+Two commands separate this from every other signing failure:
+
+```console
+$ launchctl managername
+Background                                    # `Aqua` = GUI session; this is not one
+
+$ security show-keychain-info ~/Library/Keychains/login.keychain-db
+security: SecKeychainCopySettings …: User interaction is not allowed.
+```
+
+`security find-identity -v -p codesigning` lists **valid identities the whole
+time**, which is exactly why this reads as a configuration problem. Unlock it,
+typed at the prompt rather than passed with `-p`, which would put an account
+password into shell history:
+
+```bash
+security unlock-keychain ~/Library/Keychains/login.keychain-db
+```
+
+The unlock is shared by every process of that user, so another terminal will do,
+and it is **runtime state**: it dies with a reboot, and a build box nobody logs
+into at the console starts locked every single time.
+
+**Gate it, because signing anything proves it in about a second** — a throwaway
+binary exercises the same mechanism as a framework, and turns a twenty-minute
+failure into an instant one:
+
+```bash
+SIGN_ID="$(security find-identity -v -p codesigning | awk '/^ *1\)/ {print $2}')"
+[ -z "$SIGN_ID" ] || {                        # absent is fine: cloud signing mints one
+  cp /bin/echo "$TMP/probe"
+  codesign --force --sign "$SIGN_ID" "$TMP/probe" || die "keychain locked or key ACL refuses"
+}
+```
+
+If the keychain is open and signing still fails, it is the private key's ACL
+refusing a session with no window server, which an unlock does not address:
+`security set-key-partition-list -S apple-tool:,apple:,codesign: -s <keychain>`.
+
 ### The App Store Connect key is not only an upload credential
 
 It is natural to gate the key behind the flag that decides whether to upload,
