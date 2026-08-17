@@ -3347,6 +3347,35 @@ errors exactly like a missing one. Functions can be *created* while their Cloud
 Run service is not. **Probe the behaviour** — run the query, invoke the callable
 — rather than trusting a success message or a resource listing.
 
+### For RULES specifically, you can read the deployed source back
+Probing the behaviour is the general remedy above, but a rules deploy resists it:
+evaluating a rule needs an identity, and on production the only identities are
+real people. Impersonating one to test a deploy writes as them.
+
+Rules are the one resource whose deployed *source* is readable. Fetch the current
+release, then the ruleset it names, and diff the content against the file you
+meant to deploy:
+
+```
+GET https://firebaserules.googleapis.com/v1/projects/$P/releases/cloud.firestore
+GET https://firebaserules.googleapis.com/v1/$RULESET_NAME
+```
+
+`.source.files[0].content` is the text. With user ADC you need an
+`x-goog-user-project: $P` header or the call fails 403 asking for a quota
+project — an error that reads like a missing permission and is not one.
+
+Byte-identical source plus a green suite against those same bytes is a complete
+proof: rules evaluation is deterministic given source, token and document, so
+identical source cannot behave differently. It is stronger than one hand-typed
+check through the UI, which exercises a single path and writes real data. Use the
+diff as the gate and keep the hand check as a sanity pass, not the other way
+round.
+
+The same endpoint answers "which ruleset is *actually* live" when a deploy
+succeeded from the wrong directory or the wrong project alias — the case where
+every message you saw was green.
+
 ### Say what you did not verify
 Several bugs here were reported fixed on the strength of a plausible mechanism.
 The cost is not the wrong fix; it is that the next person trusts it. When the
