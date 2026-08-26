@@ -58,9 +58,17 @@ export PLAYWRIGHT_CLI_SESSION="mysession"
 playwright-cli open example.com  # Uses "mysession" automatically
 ```
 
+```powershell
+$env:PLAYWRIGHT_CLI_SESSION = "mysession"
+playwright-cli open example.com  # Uses "mysession" automatically
+```
+
 ## Common Patterns
 
 ### Concurrent Scraping
+
+Use concurrency only when the sites and test data are independent. Prefer
+sequential sessions for authenticated or state-changing workflows.
 
 ```bash
 #!/bin/bash
@@ -79,6 +87,18 @@ playwright-cli -s=site3 snapshot
 
 # Cleanup
 playwright-cli close-all
+```
+
+```powershell
+$jobs = @(
+    Start-Job { playwright-cli -s=site1 open https://site1.example }
+    Start-Job { playwright-cli -s=site2 open https://site2.example }
+)
+$jobs | Wait-Job | Receive-Job
+playwright-cli -s=site1 snapshot
+playwright-cli -s=site2 snapshot
+playwright-cli close-all
+$jobs | Remove-Job
 ```
 
 ### A/B Testing Sessions
@@ -104,6 +124,62 @@ playwright-cli open https://example.com --persistent
 # Use persistent profile with custom directory
 playwright-cli open https://example.com --profile=/path/to/profile
 ```
+
+## Attaching to a Running Browser
+
+Use `attach` to connect to a browser that is already running, instead of launching a new one.
+
+### Attach by channel name
+
+Connect to a running Chrome or Edge instance by its channel name. The browser must have remote debugging enabled — navigate to `chrome://inspect/#remote-debugging` in the target browser and check "Allow remote debugging for this browser instance".
+
+```bash
+# Attach to Chrome
+playwright-cli attach --cdp=chrome
+
+# Attach to Chrome Canary
+playwright-cli attach --cdp=chrome-canary
+
+# Attach to Microsoft Edge
+playwright-cli attach --cdp=msedge
+
+# Attach to Edge Dev
+playwright-cli attach --cdp=msedge-dev
+```
+
+Supported channels: `chrome`, `chrome-beta`, `chrome-dev`, `chrome-canary`, `msedge`, `msedge-beta`, `msedge-dev`, `msedge-canary`.
+
+When `--session` is not provided, the session is named after the channel (e.g. `--cdp=msedge` creates a session called `msedge`), so parallel attaches to Chrome and Edge don't collide on `default`. Pass `--session=<name>` to override.
+
+### Attach via CDP endpoint
+
+Connect to a browser that exposes a Chrome DevTools Protocol endpoint:
+
+```bash
+playwright-cli attach --cdp=http://localhost:9222
+```
+
+### Attach via browser extension
+
+Connect to a browser with the Playwright extension installed:
+
+```bash
+playwright-cli attach --extension
+```
+
+### Detach
+
+Tear down an attached session without affecting the external browser:
+
+```bash
+# Detach the default attached session
+playwright-cli detach
+
+# Detach a specific attached session
+playwright-cli -s=msedge detach
+```
+
+`detach` only works on sessions created via `attach`. For sessions created via `open`, use `close`.
 
 ## Default Browser Session
 
@@ -160,6 +236,9 @@ playwright-cli close-all
 # If browsers become unresponsive or zombie processes remain
 playwright-cli kill-all
 ```
+
+Prefer closing the session you created. `close-all` and `kill-all` can disrupt
+other agents or projects sharing the same machine.
 
 ### 3. Delete Stale Browser Data
 

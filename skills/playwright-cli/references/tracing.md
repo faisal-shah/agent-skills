@@ -132,6 +132,16 @@ Traces can consume significant disk space:
 find .playwright-cli/traces -mtime +7 -delete
 ```
 
+```powershell
+Get-ChildItem .playwright-cli\traces -File -Recurse |
+    Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) } |
+    Remove-Item -Force
+```
+
+Treat traces as sensitive: they can contain page text, request payloads,
+headers, and authenticated application state. Keep them out of source control
+and delete them when the investigation is complete.
+
 ## Limitations
 
 - Traces add overhead to automation

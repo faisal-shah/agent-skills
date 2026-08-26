@@ -3,9 +3,10 @@
     Install or uninstall the playwright-cli agent skill.
 
 .DESCRIPTION
-    Copies SKILL.md and references/ into the target skills directory.
+    Copies SKILL.md, references/, and scripts/ into the target skills directory.
     Defaults to both ~/.copilot/skills and ~/.codex/skills if no path is
-    provided.
+    provided. On Windows, a default-directory install also applies the
+    idempotent no-popup repair to an existing global @playwright/cli package.
 
 .EXAMPLE
     .\install.ps1                               # install to default Copilot and Codex dirs
@@ -28,16 +29,16 @@ param(
 $SkillName = "playwright-cli"
 
 function Show-Usage {
-    Write-Host "Usage: .\install.ps1 [-Uninstall] [-Copilot|-Codex|-Claude|-All] [-SkillsDir <path>]"
-    Write-Host ""
-    Write-Host "  Install:    .\install.ps1                          # defaults to ~/.copilot/skills and ~/.codex/skills"
-    Write-Host "  Install:    .\install.ps1 -Copilot"
-    Write-Host "  Install:    .\install.ps1 -Codex"
-    Write-Host "  Install:    .\install.ps1 -Claude                    # ~/.claude/skills"
-    Write-Host "  Install:    .\install.ps1 -SkillsDir C:\my\skills"
-    Write-Host "  Uninstall:  .\install.ps1 -Uninstall               # removes from both default user dirs"
-    Write-Host ""
-    Write-Host "Creates <skills-directory>\$SkillName\ with SKILL.md and references/."
+    Write-Output "Usage: .\install.ps1 [-Uninstall] [-Copilot|-Codex|-Claude|-All] [-SkillsDir <path>]"
+    Write-Output ""
+    Write-Output "  Install:    .\install.ps1                          # defaults to ~/.copilot/skills and ~/.codex/skills"
+    Write-Output "  Install:    .\install.ps1 -Copilot"
+    Write-Output "  Install:    .\install.ps1 -Codex"
+    Write-Output "  Install:    .\install.ps1 -Claude                    # ~/.claude/skills"
+    Write-Output "  Install:    .\install.ps1 -SkillsDir C:\my\skills"
+    Write-Output "  Uninstall:  .\install.ps1 -Uninstall               # removes from both default user dirs"
+    Write-Output ""
+    Write-Output "Creates <skills-directory>\$SkillName\ with SKILL.md, references/, and scripts/."
     exit 1
 }
 
@@ -82,15 +83,22 @@ foreach ($TargetRoot in $TargetRoots) {
     if ($Uninstall) {
         if (Test-Path $Target) {
             Remove-Item -Recurse -Force $Target
-            Write-Host "Removed $Target"
+            Write-Output "Removed $Target"
         } else {
-            Write-Host "Nothing to remove: $Target does not exist"
+            Write-Output "Nothing to remove: $Target does not exist"
         }
     } else {
         $RefsDir = Join-Path $Target "references"
+        $ScriptsDir = Join-Path $Target "scripts"
         New-Item -ItemType Directory -Force -Path $RefsDir | Out-Null
+        New-Item -ItemType Directory -Force -Path $ScriptsDir | Out-Null
         Copy-Item (Join-Path $ScriptRoot "SKILL.md") -Destination $Target -Force
         Copy-Item (Join-Path (Join-Path $ScriptRoot "references") "*.md") -Destination $RefsDir -Force
-        Write-Host "Installed $SkillName to $Target"
+        Copy-Item (Join-Path (Join-Path $ScriptRoot "scripts") "*") -Destination $ScriptsDir -Force
+        Write-Output "Installed $SkillName to $Target"
     }
+}
+
+if (-not $Uninstall -and -not $SkillsDir -and $env:OS -eq "Windows_NT") {
+    & (Join-Path $ScriptRoot "scripts\repair-windows-playwright-cli.ps1") -AllowMissing
 }

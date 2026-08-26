@@ -15,7 +15,7 @@ Elmer FEM setup, schematic drawing, and persistent memory across sessions.
 | [mermaid](skills/mermaid/) | Create and validate Mermaid diagrams with the official Mermaid CLI | Node.js + npm |
 | [memory](skills/memory/) | Bootstrap persistent memory files that survive compactions and session restarts | None |
 | [netlist-to-schematic](skills/netlist-to-schematic/) | Convert SPICE netlists into publication-quality Circuitikz schematic diagrams | pdflatex, pdftoppm, Python 3.10+ |
-| [playwright-cli](skills/playwright-cli/) | Browser automation: navigation, form filling, screenshots, scraping, session management | playwright-cli, Chromium |
+| [playwright-cli](skills/playwright-cli/) | Cross-platform browser automation, evidence capture, network inspection, and Playwright test workflows | Node.js 20+, playwright-cli, supported browser |
 | [robust-doc](skills/robust-doc/) | Adversarial verification and strengthening of technical documents | Web search access |
 | [shellcheck](skills/shellcheck/) | Lint shell scripts with ShellCheck and PowerShell scripts with PSScriptAnalyzer | shellcheck-py, PSScriptAnalyzer |
 | [technical-report](skills/technical-report/) | Generate professional DOCX technical reports with python-docx: table formatting, alignment rules, image embedding, page layout, and matplotlib integration | Python 3.10+, python-docx; matplotlib *(optional)* |

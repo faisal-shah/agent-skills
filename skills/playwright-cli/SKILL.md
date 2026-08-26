@@ -1,26 +1,55 @@
 ---
 name: playwright-cli
-description: Automates browser interactions for web testing, form filling, screenshots, and data extraction. Use when the user needs to navigate websites, interact with web pages, fill forms, take screenshots, test web applications, or extract information from web pages.
-allowed-tools: Bash(playwright-cli:*)
+description: Automate and inspect web pages with playwright-cli, including navigation, forms, screenshots, network evidence, browser sessions, and Playwright test generation or debugging. Use for browser-driven verification on Windows, Linux, or WSL.
 ---
 
 # Browser Automation with playwright-cli
 
+## Operating workflow
+
+1. Confirm the installed interface with `playwright-cli --version` and
+   `playwright-cli --help` when commands may have changed.
+2. Use a descriptive named session for every task: `-s=<purpose>`.
+3. Open the page once, then inspect it with `find` or `snapshot` before acting.
+4. Use snapshot refs for interaction. Refresh the snapshot after navigation,
+   modal changes, or substantial DOM updates because old refs can become stale.
+5. Verify the observable result with page text, URL, network evidence, and a
+   screenshot when visual state matters.
+6. Close the named session when finished. Use `kill-all` only for confirmed
+   stale daemons because it affects unrelated sessions.
+
+Prefer `find` or a depth-limited snapshot on large pages. Use `run-code` only
+when a purpose-built command cannot express the operation.
+
+## Safety and evidence
+
+- Default to headless operation. Use `--headed` or `show --annotate` only when
+  the user needs to watch, take over, or provide visual feedback.
+- Before a consequential click, identify the exact target from a fresh
+  snapshot and confirm that the user authorized the effect. Capture before and
+  after evidence. Never replay a submission whose outcome is uncertain.
+- Do not print, screenshot, trace, or commit passwords, cookies, tokens, or
+  authenticated storage state. Put temporary artifacts outside the repository
+  or in an ignored output directory.
+- If a page that worked moments earlier suddenly fails, retry one read and
+  check authentication/connectivity before changing selectors or application
+  code. Report a likely environment problem instead of entering a repair loop.
+- On Windows, use the installed compatibility repair if terminal windows appear
+  during browser startup or shutdown. See
+  [Platform setup](references/platform-setup.md).
+
 ## Quick start
 
 ```bash
-# open new browser
-playwright-cli open
-# navigate to a page
-playwright-cli goto https://playwright.dev
+# open a named browser session
+playwright-cli -s=docs-check open https://playwright.dev
 # interact with the page using refs from the snapshot
-playwright-cli click e15
-playwright-cli type "page.click"
-playwright-cli press Enter
-# take a screenshot
-playwright-cli screenshot
+playwright-cli -s=docs-check snapshot
+playwright-cli -s=docs-check click e15
+# capture visual evidence when it matters
+playwright-cli -s=docs-check screenshot --filename=docs-check.png --full-page
 # close the browser
-playwright-cli close
+playwright-cli -s=docs-check close
 ```
 
 ## Commands
@@ -35,17 +64,28 @@ playwright-cli goto https://playwright.dev
 playwright-cli type "search query"
 playwright-cli click e3
 playwright-cli dblclick e7
-playwright-cli fill e5 "user@example.com"
+# --submit presses Enter after filling the element
+playwright-cli fill e5 "user@example.com"  --submit
 playwright-cli drag e2 e8
+# drop files or data onto an element (from outside the page)
+playwright-cli drop e4 --path=./image.png
+playwright-cli drop e4 --data="text/plain=hello world"
 playwright-cli hover e4
 playwright-cli select e9 "option-value"
 playwright-cli upload ./document.pdf
 playwright-cli check e12
 playwright-cli uncheck e12
 playwright-cli snapshot
-playwright-cli snapshot --filename=after-click.yaml
+# search the snapshot for text or a regexp, returns matching nodes with surrounding context
+playwright-cli find "Sign in"
+playwright-cli find --regex "Sign (in|up)"
+# wrap the regexp in slashes to add flags, e.g. /i for case-insensitive
+playwright-cli find --regex "/sign (in|up)/i"
 playwright-cli eval "document.title"
 playwright-cli eval "el => el.textContent" e5
+# get element id, class, or any attribute not visible in the snapshot
+playwright-cli eval "el => el.id" e5
+playwright-cli eval "el => el.getAttribute('data-testid')" e5
 playwright-cli dialog-accept
 playwright-cli dialog-accept "confirmation text"
 playwright-cli dialog-dismiss
@@ -87,13 +127,10 @@ playwright-cli mousewheel 0 100
 playwright-cli screenshot
 playwright-cli screenshot e5
 playwright-cli screenshot --filename=page.png
+playwright-cli screenshot --full-page
+playwright-cli screenshot --hires
 playwright-cli pdf --filename=page.pdf
 ```
-
-For report-facing screenshots, wait for fonts/network/animations to settle,
-capture both a full page and targeted element when useful, then inspect the
-image for clipping, overlaps, wrong bounding boxes, and blank/late-loaded
-regions before embedding it as evidence.
 
 ### Tabs
 
@@ -140,11 +177,19 @@ playwright-cli sessionstorage-clear
 ### Network
 
 ```bash
+playwright-cli requests
+playwright-cli request 5
+playwright-cli request-headers 5
+playwright-cli request-body 5
+playwright-cli response-headers 5
+playwright-cli response-body 5
 playwright-cli route "**/*.jpg" --status=404
 playwright-cli route "https://api.example.com/**" --body='{"mock": true}'
 playwright-cli route-list
 playwright-cli unroute "**/*.jpg"
 playwright-cli unroute
+playwright-cli network-state-set offline
+playwright-cli network-state-set online
 ```
 
 ### DevTools
@@ -152,58 +197,191 @@ playwright-cli unroute
 ```bash
 playwright-cli console
 playwright-cli console warning
-playwright-cli network
+playwright-cli requests
+playwright-cli request 5
 playwright-cli run-code "async page => await page.context().grantPermissions(['geolocation'])"
+playwright-cli run-code --filename=script.js
 playwright-cli tracing-start
 playwright-cli tracing-stop
-playwright-cli video-start
-playwright-cli video-stop video.webm
+playwright-cli video-start video.webm
+playwright-cli video-chapter "Chapter Title" --description="Details" --duration=2000
+playwright-cli video-stop
+playwright-cli pause-at tests/example.spec.ts:42
+playwright-cli resume
+playwright-cli step-over
+
+# annotate each subsequent action (click, type, ...) with a callout naming the action and highlighting the target
+playwright-cli video-show-actions --duration=600 --position=top-right
+playwright-cli video-hide-actions
+
+# launch the dashboard for UI review / design feedback — user annotates the page, you receive the annotated screenshot, snapshot, and notes
+playwright-cli show --annotate
+
+# generate a Playwright locator for an element from its ref or selector
+playwright-cli generate-locator e5 --raw
+
+# show a persistent highlight overlay for an element, optionally with a custom style
+playwright-cli highlight e5
+playwright-cli highlight e5 --style="outline: 3px dashed red"
+# hide a single element highlight, or all page highlights when no target is given
+playwright-cli highlight e5 --hide
+playwright-cli highlight --hide
 ```
 
-### Install
+## Raw output
+
+The global `--raw` option strips page status, generated code, and snapshot sections from the output, returning only the result value. Use it to pipe command output into other tools. Commands that don't produce output return nothing.
 
 ```bash
-# Install a browser (first-time setup only — skip if a browser is already available).
-# Uses the bundled Chromium by default. If it fails looking for "chrome",
-# set the browser explicitly:
-PLAYWRIGHT_MCP_BROWSER=chromium playwright-cli install-browser
-
-# To install a specific browser:
-playwright-cli install-browser --browser=firefox
-
-# NOTE: Do NOT run "playwright-cli install --skills" — this skill is already
-# installed by virtue of being in ~/.copilot/skills/.
+playwright-cli --raw eval "JSON.stringify(performance.timing)" | jq '.loadEventEnd - .navigationStart'
+playwright-cli --raw eval "JSON.stringify([...document.querySelectorAll('a')].map(a => a.href))" > links.json
+playwright-cli --raw snapshot > before.yml
+playwright-cli click e5
+playwright-cli --raw snapshot > after.yml
+diff before.yml after.yml
+TOKEN=$(playwright-cli --raw cookie-get session_id)
+playwright-cli --raw localstorage-get theme
 ```
 
-### Configuration
-```bash
-# If no config file exists and "chrome" is not installed, set the browser
-# via environment variable so open works from any directory:
-export PLAYWRIGHT_MCP_BROWSER=chromium
+PowerShell uses the same flags; pipe structured output to `ConvertFrom-Json`:
 
+```powershell
+$links = playwright-cli --raw eval "JSON.stringify([...document.querySelectorAll('a')].map(a => a.href))" |
+    ConvertFrom-Json
+```
+
+For structured output wrapping every reply as JSON, pass --json
+```bash
+playwright-cli list --json
+```
+
+## Open parameters
+```bash
 # Use specific browser when creating session
 playwright-cli open --browser=chrome
 playwright-cli open --browser=firefox
 playwright-cli open --browser=webkit
 playwright-cli open --browser=msedge
-# Connect to browser via extension
-playwright-cli open --extension
+
+# Emulate a generic mobile device (Pixel 10 for Chromium, iPhone 17 for WebKit).
+# Prefer this when a mobile layout is acceptable: mobile pages are usually
+# lighter, so snapshots are smaller and cheaper.
+playwright-cli open --mobile
+playwright-cli open --device="iPhone 15"
 
 # Use persistent profile (by default profile is in-memory)
 playwright-cli open --persistent
 # Use persistent profile with custom directory
 playwright-cli open --profile=/path/to/profile
 
+# Connect to browser via Playwright Extension
+playwright-cli attach --extension=chrome
+
+# Connect to a running Chrome or Edge by channel name
+playwright-cli attach --cdp=chrome
+playwright-cli attach --cdp=msedge
+
+# Connect to a running browser via CDP endpoint
+playwright-cli attach --cdp=http://localhost:9222
+
 # Start with config file
 playwright-cli open --config=my-config.json
 
 # Close the browser
 playwright-cli close
+# Detach from an attached browser (leaves the external browser running)
+playwright-cli -s=msedge detach
 # Delete user data for the default session
 playwright-cli delete-data
 ```
 
-### Browser Sessions
+## Shell and platform differences
+
+Use single quotes around URLs with query parameters in PowerShell and POSIX
+shells. In `cmd.exe`, escape each `&` as `^&`:
+
+```batch
+playwright-cli goto "https://example.com/?a=1^&b=2"
+```
+
+```powershell
+playwright-cli goto 'https://example.com/?a=1&b=2'
+```
+
+```bash
+playwright-cli goto 'https://example.com/?a=1&b=2'
+```
+
+For installation, environment-variable syntax, Windows process hygiene, WSL
+paths, and Windows SSO limitations, read
+[Platform setup](references/platform-setup.md).
+Run the bundled `scripts/doctor.ps1` or `scripts/doctor.sh` when first setting
+up a machine or after changing Node/npm.
+
+## Snapshots
+
+After each command, playwright-cli provides a snapshot of the current browser state.
+
+```bash
+> playwright-cli goto https://example.com
+### Page
+- Page URL: https://example.com/
+- Page Title: Example Domain
+### Snapshot
+[Snapshot](.playwright-cli/page-2026-02-14T19-22-42-679Z.yml)
+```
+
+You can also take a snapshot on demand using `playwright-cli snapshot` command. All the options below can be combined as needed.
+
+```bash
+# default - save to a file with timestamp-based name
+playwright-cli snapshot
+
+# save to file, use when snapshot is a part of the workflow result
+playwright-cli snapshot --filename=after-click.yaml
+
+# snapshot an element instead of the whole page
+playwright-cli snapshot "#main"
+
+# limit snapshot depth for efficiency, take a partial snapshot afterwards
+playwright-cli snapshot --depth=4
+playwright-cli snapshot e34
+
+# include each element's bounding box as [box=x,y,width,height]
+playwright-cli snapshot --boxes
+
+# search a large snapshot instead of capturing it all — returns matching nodes
+# with 3 lines of context around each match (like grep -C)
+playwright-cli find "Add to cart"
+playwright-cli find --regex "\\$[0-9]+\\.[0-9]{2}"
+```
+
+## Targeting elements
+
+By default, use refs from the snapshot to interact with page elements.
+
+```bash
+# get snapshot with refs
+playwright-cli snapshot
+
+# interact using a ref
+playwright-cli click e15
+```
+
+You can also use css selectors or Playwright locators.
+
+```bash
+# css selector
+playwright-cli click "#main > button.submit"
+
+# role locator
+playwright-cli click "getByRole('button', { name: 'Submit' })"
+
+# test id
+playwright-cli click "getByTestId('submit-button')"
+```
+
+## Browser Sessions
 
 ```bash
 # create new browser session named "mysession" with persistent profile
@@ -221,69 +399,28 @@ playwright-cli close-all
 playwright-cli kill-all
 ```
 
-## Working with local files (file:// URLs)
+## Installation
 
-By default, `file://` navigation is **blocked**. To open local HTML files or
-other local content, you must enable unrestricted file access using **one** of
-these methods:
-
-### Method 1: Inline environment variables (recommended for quick use)
+If global `playwright-cli` command is not available, try a local version via `npx playwright cli`:
 
 ```bash
-# Inline vars — no shell pollution, no cleanup needed
-PLAYWRIGHT_MCP_BROWSER=chromium PLAYWRIGHT_MCP_ALLOW_UNRESTRICTED_FILE_ACCESS=true \
-  playwright-cli open file:///path/to/page.html
+npx --no-install playwright --version
 ```
 
-### Method 2: Config file (recommended for repeated use)
-
-Create `playwright-cli.json` in your working directory:
-
-```json
-{
-  "allowUnrestrictedFileAccess": true
-}
-```
-
-Then simply:
+When local version is available, use `npx playwright cli` in all commands. Otherwise, install `playwright-cli` as a global command:
 
 ```bash
-playwright-cli open file:///path/to/page.html
+npm install -g @playwright/cli@latest
 ```
 
-Or pass the config explicitly:
+Then follow the host-specific setup and smoke test in
+[Platform setup](references/platform-setup.md). On Windows, rerun the skill
+installer after upgrading `@playwright/cli` so it can apply the guarded
+no-popup compatibility repair when still required.
 
-```bash
-playwright-cli open --config=playwright-cli.json file:///path/to/page.html
-```
-
-### Example: Inspect a local HTML file
-
-```bash
-PLAYWRIGHT_MCP_BROWSER=chromium PLAYWRIGHT_MCP_ALLOW_UNRESTRICTED_FILE_ACCESS=true \
-  playwright-cli open file:///home/user/project/index.html
-playwright-cli snapshot
-playwright-cli screenshot --filename=local-page.png
-playwright-cli close
-```
-
-### Example: Test a local build output
-
-```bash
-PLAYWRIGHT_MCP_BROWSER=chromium PLAYWRIGHT_MCP_ALLOW_UNRESTRICTED_FILE_ACCESS=true \
-  playwright-cli open file:///home/user/project/dist/index.html
-playwright-cli snapshot
-playwright-cli click e3
-playwright-cli snapshot
-playwright-cli close
-```
-
-### Notes on file:// paths
-
-- Paths must be **absolute** and use the `file:///` prefix (three slashes)
-- On WSL, Windows paths are accessible via `/mnt/<drive>/...`,
-  e.g. `file:///mnt/d/projects/site/index.html`
-- The env var / config applies to the session — set it on the `open` command (inline) or before it
+Do not run `playwright-cli install --skills` when this curated skill is already
+installed; that command can overwrite these platform and safety additions with
+the package's stock copy.
 
 ## Example: Form submission
 
@@ -316,7 +453,7 @@ playwright-cli open https://example.com
 playwright-cli click e4
 playwright-cli fill e7 "test"
 playwright-cli console
-playwright-cli network
+playwright-cli requests
 playwright-cli close
 ```
 
@@ -329,50 +466,24 @@ playwright-cli tracing-stop
 playwright-cli close
 ```
 
-## Tips & patterns
+## Example: Interactive session
 
-### Repeat keypresses (slide decks, pagination)
-
-`press` has no `--repeat` flag. Use a bash loop to press a key N times:
+Ask the user for UI review or design feedback. The user draws boxes on the live page and types comments; you receive the annotated screenshot, the snapshot of the marked region, and the user's notes. Use this whenever the user asks for "UI review", "design feedback", or to "ask the user what they think / want / mean":
 
 ```bash
-for i in $(seq 1 11); do playwright-cli press ArrowRight 2>&1 | tail -1; done
-```
-
-For JS-driven slide decks (Reveal.js, Impress, etc.), prefer `eval` to jump directly:
-
-```bash
-playwright-cli eval "Reveal.slide(11)"          # Reveal.js
-playwright-cli eval "impress().goto('step-11')" # Impress.js
-```
-
-### High-resolution screenshots for detail verification
-
-Resize the viewport before capturing to get 4K screenshots — essential for
-verifying small text, SVG glyphs, or chart labels:
-
-```bash
-playwright-cli resize 3840 2160
-playwright-cli screenshot --filename=detail-4k.png
-```
-
-### Edit → Reload → Verify workflow
-
-When iterating on a local file, use `reload` instead of close/reopen to keep
-your navigation state (scroll position, current slide, expanded sections):
-
-```bash
-# ... edit the file ...
-playwright-cli reload
-playwright-cli screenshot --filename=after-fix.png
+playwright-cli open https://example.com
+playwright-cli show --annotate
 ```
 
 ## Specific tasks
 
+* **Running and Debugging Playwright tests** [references/playwright-tests.md](references/playwright-tests.md)
 * **Request mocking** [references/request-mocking.md](references/request-mocking.md)
 * **Running Playwright code** [references/running-code.md](references/running-code.md)
 * **Browser session management** [references/session-management.md](references/session-management.md)
 * **Storage state (cookies, localStorage)** [references/storage-state.md](references/storage-state.md)
-* **Test generation** [references/test-generation.md](references/test-generation.md)
+* **Test generation (plan / generate / heal)** [references/test-generation.md](references/test-generation.md)
 * **Tracing** [references/tracing.md](references/tracing.md)
 * **Video recording** [references/video-recording.md](references/video-recording.md)
+* **Inspecting element attributes** [references/element-attributes.md](references/element-attributes.md)
+* **Windows, Linux, and WSL setup** [references/platform-setup.md](references/platform-setup.md)

@@ -38,7 +38,7 @@ The saved file contains:
       "value": "abc123",
       "domain": "example.com",
       "path": "/",
-      "expires": 1735689600,
+      "expires": 1893456000,
       "httpOnly": true,
       "secure": true,
       "sameSite": "Lax"
@@ -92,7 +92,7 @@ playwright-cli cookie-set session abc123
 playwright-cli cookie-set session abc123 --domain=example.com --path=/ --httpOnly --secure --sameSite=Lax
 
 # Cookie with expiration (Unix timestamp)
-playwright-cli cookie-set remember_me token123 --expires=1735689600
+playwright-cli cookie-set remember_me token123 --expires=1893456000
 ```
 
 ### Delete a Cookie
@@ -273,3 +273,5 @@ playwright-cli open https://example.com
 - Delete state files after automation completes
 - Use environment variables for sensitive data
 - By default, sessions run in-memory mode which is safer for sensitive operations
+- Prefer a dedicated automation profile over a person's everyday browser profile
+- Never print cookie values or storage-state contents into agent transcripts

@@ -10,6 +10,12 @@ for browser automation using the `playwright-cli` command-line interface.
 | File | Required | Purpose |
 |------|----------|---------|
 | SKILL.md                          | yes | Full command reference for playwright-cli |
+| scripts/doctor.ps1 / doctor.sh    | yes | Detect stale Node, missing CLI, unsafe TLS, and mixed Windows/WSL installs |
+| scripts/repair-windows-playwright-cli.ps1 | Windows | Idempotent no-popup compatibility repair |
+| scripts/smoke-test.ps1 / smoke-test.sh | yes | Network-free browser lifecycle checks |
+| references/platform-setup.md      | yes | Windows, Linux, and WSL setup and troubleshooting |
+| references/element-attributes.md  | yes | Inspecting DOM attributes missing from snapshots |
+| references/playwright-tests.md    | yes | Running and debugging Playwright tests through the CLI |
 | references/request-mocking.md     | yes | Network interception and mock patterns |
 | references/running-code.md        | yes | Executing arbitrary Playwright code |
 | references/session-management.md  | yes | Multi-browser session management |
@@ -46,8 +52,25 @@ for browser automation using the `playwright-cli` command-line interface.
 
 ## Prerequisites
 
-- `playwright-cli` (installed via the Copilot CLI Playwright MCP server or standalone)
+- Node.js 20 or newer
+- `playwright-cli` (`npm install --global @playwright/cli@latest`)
 - A supported browser (Chromium installed by default on first run)
+
+On Windows, the PowerShell skill installer also repairs upstream CLI process
+launches that can open transient Windows Terminal tabs and suppresses a known
+Node.js 24 update-notifier assertion. The repair is version-aware, idempotent,
+and must be rerun after a global npm upgrade. Linux and WSL installations are
+not modified.
+
+Run the platform doctor before first use or after changing Node/npm:
+
+```powershell
+.\skills\playwright-cli\scripts\doctor.ps1
+```
+
+```bash
+./skills/playwright-cli/scripts/doctor.sh
+```
 
 ## Quick Start
 
@@ -62,16 +85,15 @@ playwright-cli close
 
 ## What the Skill Covers
 
-1. Core commands: open, navigate, click, fill, type, select, upload
-2. Screenshots and PDF generation
-3. Keyboard and mouse control
-4. Tab management
-5. Cookie, localStorage, and sessionStorage management
-6. Network request mocking and interception
-7. DevTools: console, network logs, tracing, video recording
-8. Multi-session browser management
-9. Local file access (`file://` URLs)
-10. Test code generation from interactions
+1. Safe snapshot-first browser workflows and evidence capture
+2. Core navigation, form, keyboard, mouse, tab, and file commands
+3. Screenshots, PDFs, traces, videos, and annotated user review
+4. Network inspection, offline simulation, and request mocking
+5. Isolated, persistent, attached, and concurrent browser sessions
+6. Cookie, localStorage, sessionStorage, and authentication-state handling
+7. Playwright test planning, generation, debugging, and healing
+8. Windows, native Linux, and WSL setup with shell-correct examples
+9. Windows no-popup process repair and lifecycle smoke testing
 
 ## License
 
