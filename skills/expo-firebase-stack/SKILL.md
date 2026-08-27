@@ -3332,6 +3332,49 @@ happened to bite: a bare `.first()`/`.last()` on a text or test-id locator
 anywhere in a navigation-driving suite is the same bug waiting for a different
 day. A harness that navigates purely by role never meets this at all.
 
+### A squashed `<input type="date">` reports no overflow at all
+The natural way to ask "is this control narrower than its content" is
+`scrollWidth > clientWidth`. On a date or time input that is **always false**,
+however badly it is crushed: Chromium draws the widget in a UA shadow root that
+clips rather than scrolls, so the element reports a clean bill of health while
+showing `08` where a date should be.
+
+The trap is that the same signal *works* on `<select>` and on a text input — it
+overflows by real pixels — which is exactly enough plausibility to survive review
+and to make the date case look like "no problem here" rather than "no signal
+here". Two harnesses on this stack wrote that check independently and both were
+inert on the exact bug that motivated them; both were caught only by squashing a
+field on purpose and watching the suite stay green.
+
+Ask the control what it would take **naturally**: clone it out of the flex row,
+let it size to its content, measure, discard. No threshold, no per-type special
+case, and it answers for every control kind.
+
+```js
+const clone = el.cloneNode(false);
+Object.assign(clone.style, {
+  position: 'absolute', visibility: 'hidden',
+  width: 'auto', maxWidth: 'none', flex: 'none',
+});
+document.body.appendChild(clone);
+const natural = clone.getBoundingClientRect().width;
+clone.remove();
+if (natural - el.getBoundingClientRect().width > 2) { /* squashed */ }
+```
+
+Measured on a date field squashed by a `flex: 1` wrapper (flexBasis 0) sitting
+beside two non-shrinking buttons — the shape that causes this in the first place:
+
+| | `scrollWidth - clientWidth` | min-content shortfall |
+|---|---|---|
+| healthy | 0 | 0 |
+| squashed to 58px | **0** — blind | 85px |
+
+Why it matters beyond the check: a field squashed this way **bleeds nothing and
+overlaps nothing**, so a sweep's other geometry is all correct and all silent. It
+is invisible to every structural check and visible instantly in a screenshot,
+which is the combination that keeps it in a shipped app.
+
 ### The header Back is an `<a>`, so `getByRole('button')` never finds it
 The entry above makes `getByRole` the safe engine. It has one trap of its own on
 this stack: **the navigator's back control is not a button.**
