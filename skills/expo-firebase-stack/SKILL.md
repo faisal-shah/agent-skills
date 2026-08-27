@@ -17,6 +17,110 @@ Read **"How this stack fools you"** at the end before debugging anything
 subtle. Every entry below was found the slow way, and several were "fixed" wrongly
 first — the failure modes here are unusually good at imitating success.
 
+## Setting up a machine
+
+`tools/bootstrap-linux.sh` installs the whole toolchain on a fresh Debian/Ubuntu
+x86_64 box — Node 22, JDK 17 **and** 21, the Android SDK/NDK/AVD, gcloud, the
+Firebase CLI, sentry-cli, Playwright + Chromium, jq, lsof, pip — **entirely under
+`$HOME`, with no root**. It is idempotent, so re-running it repairs or upgrades.
+`tools/check-host.sh` answers "can this box actually do Android?" and is worth
+running on a candidate host *before* migrating to it.
+
+```sh
+tools/check-host.sh                              # verdict + what is missing
+tools/bootstrap-linux.sh --repo ~/src/my-app     # install everything
+tools/bootstrap-linux.sh --self-test             # verify, install nothing
+```
+
+The seven traps that make a fresh machine cost a day, all of which the script
+already handles:
+
+### `node: command not found` from a script, but not from your shell
+Debian's stock `~/.bashrc` begins with a guard that **returns early when the
+shell is not interactive**. Append your `PATH` setup to the bottom of `.bashrc`
+and it works when you type commands and silently does nothing for every script,
+cron job and agent tool call. Hook the environment file into **both**
+`~/.profile` and `~/.bashrc`, and guard it against double-sourcing so `PATH`
+does not accumulate duplicates. Note a bare `bash -c` reads neither file.
+
+### Chromium exits immediately: `libnspr4.so: cannot open shared object file`
+Playwright downloads its own Chromium, which needs no root — but that binary
+links against ~90 Debian libraries a minimal image does not carry, and
+`playwright install-deps` is an `apt-get install` that does.
+
+**You do not need root for this.** `apt-get download` and `dpkg-deb -x` both work
+unprivileged, so the libraries can be unpacked into a directory under `$HOME` and
+found through `LD_LIBRARY_PATH`. Ask Playwright for the list rather than
+hardcoding one:
+
+```sh
+npx playwright install-deps --dry-run chromium   # prints the exact packages
+```
+
+The same staging fixes the Android emulator, which dies at
+`Could not open libX11-xcb.so.1, give up` for the identical reason.
+
+### A missing `lsof` turns port guards into no-ops
+Dev scripts commonly free ports with `lsof -ti:PORT | xargs kill`. When `lsof`
+is **absent** that pipeline returns empty and exits 0 — so the script reports the
+port clear while a stale dev server keeps serving yesterday's bundle. A missing
+tool that converts a check into a silent pass is worse than no check. Install
+it, and prove it reports a listener you started on purpose.
+
+### `tar` cannot unpack Node: `xz: Cannot exec`
+Minimal images often lack the `xz` binary, and `tar -xJf` shells out to it.
+Node's Linux tarball is `.tar.xz`. `python3 -m lzma` is always there when
+python3 is; likewise `python3 -m zipfile` when `unzip` is missing, which the
+Android command-line tools need.
+
+### `pip install --user` refused: externally-managed-environment
+Debian 12+ ships PEP 668. `--break-system-packages` sounds alarming and is not:
+with `--user` it only ever writes to `~/.local`. On an image with no pip at all,
+bootstrap it from `get-pip.py` the same way.
+
+### Android SDK tools ignore `$HOME`
+`avdmanager` reported an AVD as already existing inside a scratch `HOME` that
+contained no AVD at all — it had read the *real* home. The JVM resolves
+`user.home` from the **passwd entry**, not the environment:
+
+```sh
+env -i HOME=/tmp/scratch java -XshowSettings:properties -version 2>&1 | grep user.home
+#     user.home = /home/you          <- not /tmp/scratch
+```
+
+So `HOME=... some-android-tool` does not isolate anything, and a container, CI
+job or sandboxed test that relies on it silently reads and writes the wrong
+directory. Set `ANDROID_AVD_HOME` (and `ANDROID_SDK_HOME` for older tools)
+explicitly whenever the AVD location matters.
+
+### The Android emulator needs hardware virtualization, and a VM may not have it
+`emulator -accel-check` is authoritative:
+
+```
+accel: 3
+KVM requires a CPU that supports vmx or svm
+```
+
+If `/proc/cpuinfo` shows `hypervisor` but neither `vmx` nor `svm`, nested
+virtualization is off **at the host** and nothing inside the guest — root
+included — can enable it. The emulator still runs, in software (TCG). Measured
+on such a host (Pixel 6, API 35): **805 s to boot, ~14 s per `screencap`**,
+~1.4 s per input event, at ~1.0 load average because TCG is single-threaded per
+vCPU. Input is usable; screenshot-based UI verification effectively is not.
+Builds are unaffected — Gradle needs no KVM.
+
+A fresh AVD also comes up on `com.android.settings.FallbackHome` rather than the
+launcher, so `screencap` returns a blank image and looks broken. It is
+unprovisioned:
+
+```sh
+adb shell settings put global device_provisioned 1
+adb shell settings put secure user_setup_complete 1
+```
+
+Expect `system_server` to restart afterwards, which under TCG takes minutes and
+reports `cmd: Can't find service: activity` throughout.
+
 ## Sign-in
 
 ### Works in a browser, fails from a WhatsApp/Slack link

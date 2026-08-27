@@ -3,7 +3,7 @@
     Install or uninstall the commit agent skill.
 
 .DESCRIPTION
-    Copies SKILL.md into the target skills directory.
+    Copies SKILL.md and tools/ into the target skills directory.
     Defaults to both ~/.copilot/skills and ~/.codex/skills if no path is
     provided.
 
@@ -37,7 +37,7 @@ function Show-Usage {
     Write-Host "  Install:    .\install.ps1 -SkillsDir C:\my\skills"
     Write-Host "  Uninstall:  .\install.ps1 -Uninstall               # removes from both default user dirs"
     Write-Host ""
-    Write-Host "Creates <skills-directory>\$SkillName\ with SKILL.md."
+    Write-Host "Creates <skills-directory>\$SkillName\ with SKILL.md and tools/."
     exit 1
 }
 
@@ -87,8 +87,10 @@ foreach ($TargetRoot in $TargetRoots) {
             Write-Host "Nothing to remove: $Target does not exist"
         }
     } else {
-        New-Item -ItemType Directory -Force -Path $Target | Out-Null
+        $ToolsDir = Join-Path $Target "tools"
+        New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null
         Copy-Item (Join-Path $ScriptRoot "SKILL.md") -Destination $Target -Force
+        Copy-Item (Join-Path (Join-Path $ScriptRoot "tools") "*.sh") -Destination $ToolsDir -Force
         Write-Host "Installed $SkillName to $Target"
     }
 }

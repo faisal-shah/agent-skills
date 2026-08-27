@@ -16,6 +16,8 @@ Firestore and Cloud Functions.
 | AGENTS.md  | no  | AI context for developing this skill |
 | install.sh | yes | Installs the skill (bash) |
 | install.ps1| yes | Installs the skill (PowerShell) |
+| tools/bootstrap-linux.sh | yes | Installs the whole toolchain on a fresh Debian/Ubuntu box, under `$HOME`, no root |
+| tools/check-host.sh | yes | Reports whether a host can run the Android emulator accelerated, and what is missing |
 
 ## What it covers
 
