@@ -400,6 +400,43 @@ until grep -q 'onUserCreate.*auth function initialized' "$LOG"; do sleep 3; done
 The general shape: **port open ≠ trigger registered**, and a readiness check on
 the wrong process fails by stranding data rather than by erroring.
 
+### Admin-SDK `createUser({ password })` is indistinguishable from a client sign-up
+An auth-create trigger usually has to tell populations apart, and the only thing
+it can read is the new user's `providerData`. That list is emptier than you
+expect, and the difference is decided by one argument:
+
+| created as | `providerData` at trigger time |
+|---|---|
+| `createUser({ email })` — no password | **empty** |
+| `createUser({ email, password })` | `['password']` |
+| federated sign-in | `['google.com']`, etc. |
+
+An empty list is therefore the Admin-SDK signature, and `['password']` is what a
+**client-side sign-up** looks like — which is precisely the thing such a trigger
+is usually written to reject, because no legitimate flow performs one. So a
+seed or test fixture that helpfully passes a password to `createUser` is
+classified as a self-signup and deleted, seconds after it was made.
+
+The failure is nasty to read. It is asynchronous, so accounts appear to exist and
+then do not; it looks intermittent, because it depends on trigger timing; and the
+trigger is doing exactly what it was designed to do, so nothing errors. Create
+without a password, then set one:
+
+```js
+const u = await auth.createUser({ email, displayName });   // no password
+await auth.updateUser(u.uid, { password, emailVerified: true });
+```
+
+`onCreate` does not fire again, so the second call is invisible to the trigger.
+This is also why the production path — invite the user, let them set their own
+password from an emailed link — is the shape that works: it is password-less at
+creation for a product reason, and the trigger's classification quietly depends
+on it. Anything reproducing that flow in a script has to reproduce that detail
+too.
+
+Note an empty provider list is also what an **anonymous** sign-in has. An email
+address is what separates the two.
+
 ### One snapshot, then silence (React Native only)
 The WebChannel stream dies silently under RN networking. Use
 `experimentalForceLongPolling` on native, `experimentalAutoDetectLongPolling` on
@@ -450,6 +487,19 @@ const res = await fetch(`http://127.0.0.1:5001/${projectId}/${region}/${knownFn}
                         { method: 'OPTIONS' });
 if (res.status !== 404) ready = true;
 ```
+
+**`OPTIONS` is load-bearing, not tidiness.** It is a CORS preflight, so the
+emulator answers from its routing table without running the function body. Swap
+it for a `GET` — the obvious simplification, and easy to do from memory — and the
+probe now *invokes* whatever function you named, in a loop, before your suite has
+started. If the only unauthenticated function you have is a bootstrap or a seed
+(they usually are, since everything else demands auth), the readiness check has
+just mutated the world it was about to test. A readiness check with a side effect
+on the system under test is not a readiness check.
+
+Safer still where it will do: probe services that have no function bodies at all
+— the Auth emulator's `/emulator/v1/projects/<id>/config` and a plain `GET` on
+the Firestore emulator root both answer 200 when up, and cannot do anything.
 
 The same symptom appears with a **leftover emulator from a killed run**: it holds
 the port with nothing registered, so a fresh run talks to a half-dead process. If
@@ -1905,6 +1955,44 @@ Prove it with geometry, not eyeballs: in Playwright, compare the text's
 `getBoundingClientRect().right` against the sibling control's `left`. That check
 is meaningful even on web, where the clipping hides the overlap.
 
+**Comparing two elements to each other is safe; comparing one to the VIEWPORT
+depends on the scrollbar, so measure before believing either story.**
+
+Measured on Playwright's bundled headless Chromium on Linux: the scrollbar is an
+**overlay**, and the inset is **zero** — at the document level and on an
+`overflow-y: scroll` element alike.
+
+```
+viewport 320 · innerWidth 320 · documentElement.clientWidth 320
+scroller rect 320 · scroller clientWidth 320 · inset 0
+```
+
+So on that runner `innerWidth` and the layout box are the same number and none of
+this matters. `--disable-features=OverlayScrollbar` does **not** flip it back, so
+do not spend time trying to reproduce the classic case there.
+
+It matters where a **classic** scrollbar is in effect — another OS, a headed run,
+a different browser — because it takes ~15px out of the layout box, and the two
+common checks then fail in *opposite* directions:
+
+| check | with a classic scrollbar |
+|---|---|
+| "is this column centred?" vs `innerWidth` | false **positive** — a centred column reads ~7px off |
+| "does the page bleed?" as `scrollWidth - innerWidth` | false **negative** — under-reports, hiding up to ~15px of real overflow |
+
+The false negative is the one to care about: a guard that quietly under-reports
+still catches large overflows, so it degrades invisibly rather than going red.
+
+Measuring against the layout box costs nothing and is right on both kinds of
+runner, so just do it and stop thinking about scrollbars:
+
+```js
+const vw = Math.min(document.documentElement.clientWidth, window.innerWidth);
+// and for a scroll container:
+const inner = { left: el.getBoundingClientRect().left + el.clientLeft,
+                width: el.clientWidth };
+```
+
 ### Button labels break mid-word at large accessibility font sizes
 `allowFontScaling` is on by default, so a user at Android's largest font setting
 (scale 2.0) renders your 15sp label at 30sp. A single word wider than the button
@@ -3207,6 +3295,161 @@ async function fillThen(page, placeholder, value, act) {
 The short per-attempt timeout is what converts a 30-second dead wait into a
 retry. And apply it to EVERY controlled input in the script, not just the one
 that failed — the others are the same gun, unfired.
+
+### The screen underneath is still in the DOM, so `.first()`/`.last()` lie
+A native-stack navigator on react-native-web keeps the screen you navigated away
+from **mounted**, hidden with `display: none`. Its text, its test ids and its
+fields are all still queryable. So a positional text locator can resolve to the
+screen *underneath* the one on screen — and because that element will never
+become visible, Playwright retries against it until the timeout and the run dies
+at a step that has nothing wrong with it.
+
+It bites hardest where the same label exists on both screens (a picker field, a
+name, a status word), and it is timing-dependent: the wrong element wins only in
+the window between the tap and the pushed screen mounting, so the suite fails
+intermittently and the failing step looks arbitrary. Two sibling apps were each
+losing roughly one run in two to this before it was named.
+
+The locator strategies are **not** equivalent here:
+
+| | sees hidden nodes? |
+|---|---|
+| `getByText` / `getByLabel` / CSS `locator()` | **yes** |
+| `getByTestId` | **yes** — it is a plain attribute selector, despite feeling "precise" |
+| `getByRole` | no — role engines skip `display:none`, as a screen reader does |
+
+So "use a test id instead of text" is not the fix, and documenting it as one is
+worse than saying nothing. The fix is to filter first, or to navigate by role:
+
+```js
+const firstOnScreen = (l) => l.filter({ visible: true }).first();
+const lastOnScreen  = (l) => l.filter({ visible: true }).last();
+await lastOnScreen(page.getByText('Pick an activity')).click();
+```
+
+Make it a **property of the file**, not a patch at the two call sites that
+happened to bite: a bare `.first()`/`.last()` on a text or test-id locator
+anywhere in a navigation-driving suite is the same bug waiting for a different
+day. A harness that navigates purely by role never meets this at all.
+
+### The header Back is an `<a>`, so `getByRole('button')` never finds it
+The entry above makes `getByRole` the safe engine. It has one trap of its own on
+this stack: **the navigator's back control is not a button.**
+
+`PlatformPressable` renders `role="link"` whenever it is given an `href`, and a
+stack navigator gives it one as soon as the app has a `linking` config — which is
+also what makes the browser's own Back work, so any web build worth testing has
+it. The accessible name is `Go back` when there is no previous title, and
+`<Previous title>, back` when there is.
+
+A "can you leave this screen?" check written as
+`getByRole('button', { name: /back/i })` therefore matches nothing, and reports
+**every pushed screen in the app** as a dead end. That is a check failing on its
+own selector rather than on the thing it is checking, and it is convincing:
+dozens of failures, all naming real screens.
+
+Query by label and let the role fall where it may:
+
+```js
+const back = (page) =>
+  page.getByLabel(/(^|,\s*)(go\s+)?back$/i).filter({ visible: true }).first();
+```
+
+...and in an in-page evaluation, look at `[role="button"], [role="link"], button,
+a[href]` rather than buttons alone.
+
+Worth knowing beyond tests: it is a real link with a real `href`, so a
+middle-click or "open in new tab" on your back arrow does something, and it is
+keyboard-focusable as a link.
+
+### A fire-and-forget write, then a navigation, reads back as "it did not persist"
+A handler that calls `updateDoc(...)` without awaiting it returns immediately.
+Navigate or reload in the next line and the page can be torn down with the write
+still unsent — so the assertion after the reload sees the OLD value. That is
+indistinguishable from the persistence bug the check exists to catch, and it
+sends you looking at rules, listeners and the SDK's offline cache.
+
+Wait for something the *round trip* changes before navigating. A control bound to
+a snapshot listener rather than to local state is ideal: it flipping is proof the
+write reached the server and came back.
+
+```js
+await toggle.click();
+await page.waitForFunction(() => {
+  const s = document.querySelectorAll('[role="switch"]');
+  return s.length > 0 && s[s.length - 1].checked === false;   // listener-driven
+}, undefined, { timeout: 15000 });
+await page.goto(base);   // only now
+```
+
+### Two repos on one machine fight over the emulator ports
+The Firebase emulator ports are fixed in `firebase.json` **and** compiled into the
+client (`connectFirestoreEmulator(host, 8080)`), and the usual "free the ports
+first" helper kills by port. So two checkouts on the same machine cannot run
+their suites at once: whichever starts second SIGTERMs the other's Firestore
+emulator. The victim sees `Firestore Emulator has exited with code: 143` if it is
+lucky, and if it is not, an inexplicable mid-run timeout or a silently lost
+write — which reads exactly like a bug in the code under test.
+
+Before debugging a suite that fails on a shared box, check for another
+checkout's emulator: `ps -eo pid,args | grep "[j]ava -jar .*emulator"` shows the
+rules path, which names the repo that owns it. Making them coexist means
+threading the ports through the client as well as the config — a change to a
+shipped seam, so decide it deliberately rather than mid-debug.
+
+### Your geometric checks are unanchored: assert the viewport actually applied
+A layout sweep measures the DOM against the DOM — this element against that one,
+this column against the scroller that holds it. That makes every check internally
+consistent and completely **silent about which width it ran at**. The width came
+from a Playwright viewport option and was believed.
+
+Nothing in such a file can tell you the option applied. If one silently did not,
+every check still passes, every screenshot is mislabelled, and "N checks across
+five widths" becomes a sentence about nothing. It is the *a tour that cannot fail
+is a screenshot generator* rule one level up — at the tour's premise rather than
+at its steps, which is where nobody thinks to look.
+
+Two independently written harnesses, different codebases, different assertion
+sets, both sabotaged the same way (viewport set to `w - 40` while still claiming
+`w`):
+
+| | result at the wrong width |
+|---|---|
+| harness A | **124 of 127 checks passed** — the only 3 failures were the new premise check |
+| harness B | 55 of 64 — 4 premise checks, plus 5 genuine failures from a check that happens to be sensitive to *absolute* width |
+
+The agreeing half is the finding: in both, **every anchoring-dependent check
+passed** — bleed, overlap, right-edge clipping, escape routes, breakpoint layout.
+Not one could tell. B's extra five are worth naming precisely so they are not
+mistaken for coverage: a "control narrower than its content" check fired because
+280px is below anything that app was designed for. That is luck of sabotage size
+— it would not have fired at 5px — not a substitute for the check.
+
+Assert it directly, once per **context** and before the tour:
+
+```js
+const at = await page.evaluate(() => ({
+  layout: document.documentElement.clientWidth,   // the layout box, not innerWidth
+  window: window.innerWidth,
+}));
+check(`${tag} laid out at ${width}px`, at.layout === width,
+      `clientWidth = ${at.layout}, innerWidth = ${at.window}`);
+```
+
+Per context, not per width: each browser context carries its own `viewport`
+option, so checking one says nothing about the next. Per context and not per
+screen either — one honest line per context beats a screenful of noisy ones. And
+**before** the tour, so a bad viewport fails ahead of the geometry rather than
+after a screen of it has been measured against the wrong reference.
+
+Watch for a dead reference width while you are in there. If the sweep threads a
+`width` argument down to assertions that have stopped using it, `no-unused-vars`
+will not save you: it defaults to `args: 'after-used'`, so a parameter followed by
+used ones is never reported. In the two harnesses above the same dead argument was
+invisible in one and caught in the other, decided by nothing but its position in
+the signature. `args: 'all'` with `argsIgnorePattern: '^_'` is the setting that
+sees it — measure the violation count before adopting, it differs sharply between
+codebases.
 
 ### Confirmation dialogs silently do nothing under Playwright
 Playwright **auto-dismisses** `window.confirm`. Register the handler, and assert
