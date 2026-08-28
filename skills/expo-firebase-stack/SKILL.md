@@ -1,6 +1,6 @@
 ---
 name: expo-firebase-stack
-description: Diagnose and avoid the recurring traps in Expo + react-native-web + Firebase JS SDK apps — Google sign-in failing only inside chat-app browsers, DEVELOPER_ERROR on Android, emulator data that "does not exist", stale Metro bundles, config plugins that silently do nothing in the bare workflow, module-resolution errors naming files that exist, native debug builds serving stale JS or an unset EXPO_PUBLIC flag, screenshotting a stale installed build, unauthenticated screenshots that verify nothing, unthemeable react-native-web controls, push notifications that deliver nothing while every visible part works, live-query races that make seeds and tests silently do nothing, and nightly "backups" that are really mirrors and protect against nothing. Use when building, debugging, deploying, or verifying an Expo app that shares one codebase across Android and web via react-native-web with Firebase for auth/Firestore/Functions.
+description: Diagnose and avoid the recurring traps in Expo + react-native-web + Firebase JS SDK apps — Google sign-in failing only inside chat-app browsers, DEVELOPER_ERROR on Android, emulator data that "does not exist", stale Metro bundles, config plugins that silently do nothing in the bare workflow, module-resolution errors naming files that exist, native debug builds serving stale JS or an unset EXPO_PUBLIC flag, screenshotting a stale installed build, unauthenticated screenshots that verify nothing, unthemeable react-native-web controls, push notifications that deliver nothing while every visible part works, an Android permission prompt raised at the worst possible moment because nothing refuses it, a permission screen that goes stale the moment the person leaves to fix the setting it named, live-query races that make seeds and tests silently do nothing, and nightly "backups" that are really mirrors and protect against nothing. Use when building, debugging, deploying, or verifying an Expo app that shares one codebase across Android and web via react-native-web with Firebase for auth/Firestore/Functions.
 ---
 
 # Expo + react-native-web + Firebase: the traps
@@ -2647,7 +2647,28 @@ Two independent walls, and both look exactly like a rejected VAPID key:
   `AbortError: Registration failed - permission denied` from
   `PushManager.subscribe`. `channel: 'chrome'` does not rescue it either.
 
-So web delivery has no automated check. What you CAN automate, with no browser
+So web delivery has no automated check — but the **permission-dependent UI** is
+a different question, and that one you can automate. The state machine under test
+is yours, not Chromium's, so replace the getter and drive it:
+
+```js
+await ctx.addInitScript(() => {
+  Object.defineProperty(window.Notification, 'permission', {
+    configurable: true, get: () => 'default',   // or 'granted'
+  });
+});
+```
+
+That is what makes an offer card render in a layout sweep at all — headless
+reports `"denied"`, so a card shown only while the device can still be asked is
+absent from every screenshot at every width, and the sweep that exists to catch
+its layout cannot see it. It also lets you assert the foreground re-read: change
+the getter, dispatch `visibilitychange`, and require the panel to move to a
+different message. Mutation-check that one — drop the subscription and watch it
+go red — because a check that waits for a message already on screen passes
+without anything having happened.
+
+What you CANNOT fake this way is delivery. What you CAN automate, with no browser
 at all:
 
 ```js
@@ -2808,6 +2829,20 @@ whole screen read "unsupported" in every local run, so the one control the
 feature depends on can never be seen, screenshotted or toured by a layout sweep.
 Gate the token, not the screen.
 
+**On native the same gate has a second victim, and it is worse.** Put
+`if (USE_EMULATORS) return false` on the first line of the registration function
+and you also skip the permission request and the channel creation — so an
+emulator-backed build can never once raise the OS dialog or create the channel.
+That is the only build most projects can put on a device, which leaves the one
+native surface a browser cannot reach unreachable from the only place it could
+be looked at, and the channel's importance unverifiable. It also makes the
+enable-path lie: registration returns false, the caller re-reads a permission
+nobody asked for, finds "default", and reports **denied** for a device that has
+simply not been asked — so the offer card hides on a press that did nothing.
+Put the gate immediately above the token call, with the channel setup and the
+prompt above it. Everything but delivery is then real on a local build, and
+`adb shell dumpsys notification` will show you the channel and its importance.
+
 **react-native-web is safe here**: `PressResponder` invokes `onPress`
 synchronously inside the DOM `click` handler, so a `Pressable` does carry the
 activation. Worth confirming rather than assuming — it runs its own responder
@@ -2838,6 +2873,69 @@ there returns to a card still insisting they are not enabled.
 below), so assert the shape in a unit test: mock `isSupported()` to a promise
 that never resolves, call the handler entry point, and assert
 `requestPermission` was still called. That fails on any reintroduced await.
+
+### Android lets you prompt from anywhere, so nothing stops you asking at the worst moment
+The web half of this is enforced for you: a browser refuses a request that does
+not follow a click, so the bug announces itself. Android honours a request from
+anywhere — including a sign-in callback — so the same code "works" and ships,
+and the port of the click-driven design stops at the platform boundary with a
+comment saying native needs no such rule.
+
+It needs the rule for a different reason. **Android 13's notification permission
+is spendable**: a second refusal fixes it permanently, and nothing in the app can
+raise it again. So where the prompt lands matters as much as whether it appears.
+Asking from the sign-in path lands it on whatever screen happens to be up at the
+time — for an app with an approval gate, that is a *waiting to be approved*
+screen, where the account cannot yet see anything and there is nothing to be
+notified about. It is the least persuasive moment available, and it is one of
+only two you get.
+
+It also makes the offer card pointless on that platform: by the time the first
+screen renders, the OS has already asked, so the card either shows a stale
+message or double-asks — spending the second chance on a screen the person did
+not press anything to reach.
+
+Same shape as web, and for a stronger reason: sign-in reads the permission and
+registers **only if it is already granted**; one button asks. On Android that
+costs a tap and buys back both prompts for a moment the person chose.
+
+Watch it on a device rather than reasoning about it — `adb shell dumpsys package
+<pkg> | grep POST_NOTIFICATIONS` prints the flags. Nothing asked yet has no
+`USER_SET`; one refusal adds `USER_SET`; a spent prompt adds `USER_FIXED`. That
+is the whole state machine, readable at any point, and it is how you tell "we
+never asked" from "they said no".
+
+### Returning from the OS settings screen re-runs nothing
+Tell a blocked device to open system settings and you have sent the person out
+of the app. They turn notifications on. They come back. The screen still says
+**blocked**, beside the same button back to the setting they just fixed — a
+closed loop whose only exit is navigating somewhere else and back, which the
+screen never suggests. `dumpsys` says `granted=true` throughout, so nothing looks
+broken anywhere except on the screen.
+
+Nothing remounts on that return. It is not a navigator event, so checking on
+focus does not cover it either — that fixes a *pushed screen* hiding a mounted
+one, which is a different problem with the same symptom. What actually changed is
+that the app came back to the front:
+
+```ts
+useEffect(() => {
+  const check = () => { /* re-read permission, set state */ };
+  check();
+  const sub = AppState.addEventListener('change', (s) => { if (s === 'active') check(); });
+  return () => sub?.remove();
+}, [uid]);
+```
+
+One implementation covers both surfaces: react-native-web maps `AppState` onto
+`document.visibilitychange` and emits `currentState` with no diffing, so a
+browser tab returning from its site-settings panel re-reads the same way. Make
+the check cancellable — it is async and sets state when it lands, so two
+foregrounds in quick succession otherwise leave two live checks racing.
+
+This generalises past notifications: any state the app does not own and cannot be
+told about — an OS permission, a system setting, a subscription bought
+elsewhere — needs re-reading on foreground rather than on mount.
 
 ### A tap that only opens the app is a half-built notification
 A push that names a specific record ("X was rejected", "Y is waiting for you")
@@ -3642,6 +3740,17 @@ the range assertion go in together, and every half-migrated state fails in
 seconds instead of surfacing later as a suite that quietly passed against the
 neighbour's database.
 
+**Enumerate the consumers by grepping for the OLD numbers, not by listing the
+ones you know about**, and add the abandoned ports to the test as a
+never-again list. The consumer most likely to be missed is `package.json` — a
+dev-server port lives there as `--port 8086` inside a script string, in a file
+nobody thinks of as configuration and which a `scripts/`-only scan does not
+open. Miss it and the documented dev loop cannot complete at all: the runner
+waits on the new port, the server answers on the old one, the seed fetches the
+new one, and the sweep list does not free the old one, so a stray server is left
+behind on every attempt. Match `--port N` as well as `host:port`; a bare number
+cries wolf, because 4000 and 8000 are also millisecond timeouts.
+
 ### Your geometric checks are unanchored: assert the viewport actually applied
 A layout sweep measures the DOM against the DOM — this element against that one,
 this column against the scroller that holds it. That makes every check internally
@@ -3936,6 +4045,20 @@ insets, so keyboard behaviour differs from real hardware.
 
 **Reproduce on the surface that is broken.** A green web suite says nothing about
 a native layout bug — the divergence *is* the bug.
+
+The gap is not only layout. Anything the OS owns — a permission prompt, where it
+lands, what happens when the person leaves for the settings app and comes back —
+has no browser equivalent at all, so a suite cannot be wrong about it; it simply
+never had an opinion. A feature can be reviewed twice, tested on both surfaces
+and shipped, with its central interaction never once having run. Say plainly
+which platform a claim rests on, and treat "never run on a device" as an open
+item rather than a formality.
+
+Watch for the closed loop when you do run it: a screen that gives correct advice,
+sends the person out of the app to act on it, and cannot see that they did. Every
+individual piece is right and the feature is unusable, and no assertion about the
+screen catches it, because at the moment the assertion runs the screen is telling
+the truth.
 
 ### The APK at the output path may be the PREVIOUS build
 `assembleRelease` writes to a fixed path, and the file from last night's build is
