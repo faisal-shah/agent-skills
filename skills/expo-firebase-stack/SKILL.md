@@ -2636,6 +2636,12 @@ Two independent walls, and both look exactly like a rejected VAPID key:
 - **Headless** leaves `Notification.permission` reading `"denied"` however
   `requestPermission()` resolves, and the SDK reads the property:
   `messaging/permission-blocked`. Headed under `xvfb-run` reports `granted`.
+  This is Playwright's default `headless_shell` build, which disables
+  notifications outright — no CDP `Browser.setPermission` call moves it.
+  `chromium.launch({ channel: 'chromium' })` (the full browser, new headless)
+  reports `"default"` instead, which is the state that renders a "turn these
+  on" control — so that is the launch you need to screenshot the offer, even
+  though it still cannot mint a token.
 - **Playwright's Chromium is the open-source build**, which ships without the
   Google API keys needed to reach FCM's push service:
   `AbortError: Registration failed - permission denied` from
@@ -2711,6 +2717,90 @@ without one.
 Make the absence of the key an explicit early return rather than something that
 throws mid sign-in. Half-configured web push should do nothing, visibly by
 design, while native keeps working.
+
+### Web push needs a THIRD thing: the prompt must follow a click
+Permission is not configuration, and it is the part a browser refuses on your
+behalf without telling you. `Notification.requestPermission()` **consumes
+transient activation** in WebKit, which honours it only as the direct result of a
+click. Asked from anywhere else:
+
+- **Safari** refuses outright — no prompt, the promise resolves `"default"`.
+- **Chrome** demotes it to the quiet chip, easily missed, and records no decision.
+
+Either way `Notification.permission` stays `"default"`, so **the site appears in
+neither the allowed nor the blocked list**. That absence is the diagnostic — a
+site genuinely refused is in the blocked list.
+
+The wrong call sites all look reasonable:
+
+- a sign-in callback, or a Firestore `onSnapshot` handler;
+- a `useEffect` keyed on the signed-in user;
+- a `useEffect` on the settings screen someone just tapped into. **Navigation is
+  not activation** — React flushes passive effects in a later task than the tap,
+  so the gesture is gone by the time the effect runs.
+
+And inside a click handler, **nothing may be awaited before the request** —
+including the support check:
+
+```ts
+// WRONG. isSupported() awaits an IndexedDB open() that resolves from an
+// `onsuccess` TASK, so the request lands an event-loop turn after the click.
+if (!(await isSupported())) return;
+if ((await Notification.requestPermission()) !== 'granted') return;
+```
+
+Split the check by synchrony. The synchronous half gates the prompt; the
+asynchronous half runs after it, where an await costs nothing:
+
+```ts
+function canRequestPush(): boolean {
+  return (
+    !!VAPID_KEY && typeof window !== 'undefined' &&
+    'Notification' in window && 'serviceWorker' in navigator &&
+    'PushManager' in window
+  );
+}
+
+export async function enablePush(uid: string) {
+  if (!canRequestPush()) return 'unavailable';
+  // NOTHING MAY BE AWAITED ABOVE THIS LINE. An async function runs
+  // synchronously up to its first await, so the request below is still inside
+  // the click — provided every caller in the chain also calls straight through.
+  const decision =
+    Notification.permission === 'default'
+      ? Notification.requestPermission()
+      : Promise.resolve(Notification.permission);
+  if ((await decision) !== 'granted') return 'denied';
+  if (!(await isSupported().catch(() => false))) return 'unavailable';
+  // ...service worker + getToken, awaits are free from here
+}
+```
+
+The shape that works: **sign-in registers silently when permission is already
+granted** — `getToken` never prompts in that state, so every already-working
+device keeps working with no click — and a **"Turn on notifications" button** on
+the settings screen is the only thing that ever asks.
+
+Return three outcomes, not a boolean. Granted-but-no-token (pointed at the
+emulators, a worker that failed to activate) is not a refusal, and telling
+someone notifications are "turned off" when they just said yes sends them to fix
+a setting that is already correct.
+
+**Do not gate the UI state on the emulator flag.** Registration must skip the
+emulators — FCM has none — but folding that into the capability check makes the
+whole screen read "unsupported" in every local run, so the one control the
+feature depends on can never be seen, screenshotted or toured by a layout sweep.
+Gate the token, not the screen.
+
+**react-native-web is safe here**: `PressResponder` invokes `onPress`
+synchronously inside the DOM `click` handler, so a `Pressable` does carry the
+activation. Worth confirming rather than assuming — it runs its own responder
+state machine full of `setTimeout`s.
+
+**A headless e2e cannot catch a regression in this** (see the Playwright note
+below), so assert the shape in a unit test: mock `isSupported()` to a promise
+that never resolves, call the handler entry point, and assert
+`requestPermission` was still called. That fails on any reintroduced await.
 
 ### A tap that only opens the app is a half-built notification
 A push that names a specific record ("X was rejected", "Y is waiting for you")
