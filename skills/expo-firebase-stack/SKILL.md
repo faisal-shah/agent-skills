@@ -2763,17 +2763,33 @@ function canRequestPush(): boolean {
 
 export async function enablePush(uid: string) {
   if (!canRequestPush()) return 'unavailable';
-  // NOTHING MAY BE AWAITED ABOVE THIS LINE. An async function runs
-  // synchronously up to its first await, so the request below is still inside
-  // the click — provided every caller in the chain also calls straight through.
-  const decision =
-    Notification.permission === 'default'
-      ? Notification.requestPermission()
-      : Promise.resolve(Notification.permission);
-  if ((await decision) !== 'granted') return 'denied';
-  if (!(await isSupported().catch(() => false))) return 'unavailable';
-  // ...service worker + getToken, awaits are free from here
+  // Inside the try, and still first: ENTERING a try block is synchronous, so
+  // this keeps the request in the click AND catches a synchronous throw. Left
+  // outside it, a throw escapes a function every caller treats as total, and
+  // the button it was pressed from spins for ever.
+  try {
+    // NOTHING MAY BE AWAITED ABOVE THIS LINE. An async function runs
+    // synchronously up to its first await, so the request below is still inside
+    // the click — provided every caller in the chain also calls straight through.
+    const decision =
+      Notification.permission === 'default'
+        ? Notification.requestPermission()
+        : Promise.resolve(Notification.permission);
+    if ((await decision) !== 'granted') return 'denied';
+    if (!(await isSupported().catch(() => false))) return 'unavailable';
+    // ...service worker + getToken, awaits are free from here
+  } catch {
+    return 'unavailable';
+  }
 }
+```
+
+And where the caller catches, map the rejection to the FAILURE outcome, not to
+`undefined` — `undefined` falls through whatever branch handles success and the
+card vanishes silently, which is the thing the three outcomes exist to prevent.
+
+```ts
+enablePush(uid).catch(() => 'unavailable' as const).then(/* … */);
 ```
 
 The shape that works: **sign-in registers silently when permission is already
@@ -2796,6 +2812,27 @@ Gate the token, not the screen.
 synchronously inside the DOM `click` handler, so a `Pressable` does carry the
 activation. Worth confirming rather than assuming — it runs its own responder
 state machine full of `setTimeout`s.
+
+**A keyless build deletes the whole path, silently.** The key reaches the bundle
+from `EXPO_PUBLIC_*` in the environment that runs `expo export`. Miss it and
+nothing fails — an inert-by-design client means the build succeeds, the site
+deploys, and every device reports it cannot receive notifications. It is
+invisible in source, because the source is correct either way. It is glaring in
+the OUTPUT: with no key the minifier proves the capability check false and folds
+the entry point to a bare `return'unavailable'`, deleting the permission path.
+Gate the release on reading the exported bundle — assert a real 65-byte P-256
+point (87 base64url chars, leading `B`, and NOT the Firebase SDK's own sample
+key `BDOU99…`). Keep it out of `web:export` itself: keyless local builds are
+normal, and the e2e harness depends on them.
+
+**Put the ask somewhere it will be found.** A control that only exists on a
+notification-settings screen is a fix nobody reaches. A dismissible card on the
+first screen after sign-in works, and dismissing it costs nothing — that is the
+whole point of asking on your own card before the browser's: a "not now" there
+is free and repeatable, while a dismissed browser or OS dialog is spent. Under a
+STACK navigator, check on focus rather than on mount: the home screen stays
+mounted while settings is pushed over it, so someone who enables notifications
+there returns to a card still insisting they are not enabled.
 
 **A headless e2e cannot catch a regression in this** (see the Playwright note
 below), so assert the shape in a unit test: mock `isSupported()` to a promise
