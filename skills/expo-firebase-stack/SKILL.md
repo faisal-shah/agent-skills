@@ -773,11 +773,36 @@ Two consequences worth designing around:
   you hunting a bug that is not there. Grep the runner's own counts out of the
   log and report the exit code separately.
 
-Leftover emulator processes are the related trap: they hold 8080/9199 and the
-next run dies with "port taken". Kill by matching the process's **cwd** to the
-repo, not by name alone — sibling projects on the same machine run the same
-binaries, and `firebase-tools` does not match the launcher process, which is
+Leftover emulator processes are the related trap: they hold the emulator ports
+and the next run dies with "port taken". Kill by matching the process's **cwd**
+to the repo, not by name alone — sibling projects on the same machine run the
+same binaries, and `firebase-tools` does not match the launcher process, which is
 `bin/firebase`.
+
+**The worse leftovers hold no port at all.** When a run is killed, the functions
+emulator's Node **runtime workers** can survive it, reparent to init, and sit
+there at ~150 MB each. They are invisible to every port check — `ss` says the
+block is clear, the next run starts happily — and they accumulate one batch per
+aborted run. Measured after three interrupted runs: twelve orphans, ~1.7 GB, all
+`ppid=1`.
+
+That produces a genuinely confusing failure loop, because the cost lands on the
+*next* run rather than the one that leaked: a long browser suite dies partway
+with `ERR_CONNECTION_REFUSED` against its own dev server, at a *different* screen
+each time, and the dev server's log ends with no error at all — the signature of
+a process that was killed rather than one that crashed. It reads as flakiness in
+whatever you changed most recently. Clearing the orphans makes the same suite
+pass unchanged.
+
+So when a suite fails that way, count the orphans before suspecting your diff:
+
+```sh
+ps -eo pid,ppid,rss,args --no-headers | grep "[f]irebase-tools" |
+  awk '$2==1 {n++; kb+=$3} END {printf "%d orphans, %d MB\n", n, kb/1024}'
+```
+
+and identify each one's owner with `readlink /proc/<pid>/cwd` before killing it,
+since on a shared machine some of them will belong to another checkout.
 
 ### The functions emulator SERIALISES calls to a warm instance — so races vanish
 Fire N concurrent requests at a callable through the emulator and they may run
