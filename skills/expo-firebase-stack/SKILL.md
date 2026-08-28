@@ -3434,11 +3434,61 @@ emulator. The victim sees `Firestore Emulator has exited with code: 143` if it i
 lucky, and if it is not, an inexplicable mid-run timeout or a silently lost
 write — which reads exactly like a bug in the code under test.
 
-Before debugging a suite that fails on a shared box, check for another
-checkout's emulator: `ps -eo pid,args | grep "[j]ava -jar .*emulator"` shows the
-rules path, which names the repo that owns it. Making them coexist means
-threading the ports through the client as well as the config — a change to a
-shipped seam, so decide it deliberately rather than mid-debug.
+**Find the owner before you kill anything.** `ps` is not enough — two checkouts
+can share a `--project` value, and a truncated `ps` line is a classic way to kill
+the wrong emulator. The port's own process is authoritative:
+
+```sh
+pid=$(ss -lptn "sport = :$PORT" | grep -oP 'pid=\K[0-9]+' | head -1)
+readlink /proc/$pid/cwd        # the checkout that owns it
+```
+
+Use `ss`, not `lsof`: `lsof` is often absent from a non-interactive shell, and a
+missing `lsof` turns a port guard into a no-op that always reports "free".
+
+**The fix is a port block per checkout.** Give each repo a base and keep fixed
+offsets, so a port number names its owner at a glance:
+
+| offset | service | | offset | service |
+|---|---|---|---|---|
+| +0 | firestore | | +5 | hub |
+| +1 | firestore `websocketPort` | | +6 | logging |
+| +2 | auth | | +7 | storage |
+| +3 | functions | | +10 | web dev server |
+| +4 | ui | | +11 | second web dev server |
+
+Choose bases **above the ephemeral range** (`/proc/sys/net/ipv4/ip_local_port_range`,
+commonly 32768–60999) and clear of Firebase's own defaults, which top out at
+**9499** (`firebase-tools/lib/emulator/constants.js`). A base of 61000, 61100,
+61200… satisfies both, so nothing is ever handed out at random onto your block.
+
+Four details decide whether this actually works:
+
+- **`firestore.websocketPort` is a NESTED key that defaults to 9150 and is not
+  derived from `firestore.port`.** Move `firestore.port` alone and every checkout
+  still shares 9150. Worse, left unset it *silently increments* on collision
+  instead of erroring — `controller.js` sets `portFixed: !!wsPortConfig`.
+- **`ui`, `hub`, `logging`, `eventarc` and `tasks` have
+  `FIND_AVAILBLE_PORT_BY_DEFAULT: true`** and drift silently; `firestore`, `auth`,
+  `functions` and `storage` hard-fail. Pin the drifters too — turning silent
+  drift into a hard error is the point.
+- **The client's port must be a SOURCE LITERAL, never `EXPO_PUBLIC_*`.** On a
+  native debug build those come from the environment that started *Metro*, and
+  one Metro can serve several projects — the app's backend address would become a
+  property of an unrelated process's environment. Env-with-default is worse
+  still: it fails *toward* the collision, since an unset or mistyped var falls
+  back to the shared default and connects to the neighbour, which reads and
+  writes happily and passes.
+- **The kill helper must sweep only its own block.** A sweep that reaches past it
+  is precisely what kills a sibling's emulator.
+
+**Land a consistency test before you move anything.** The ports cannot live in
+one file — `firebase.json`, the client, the scripts and the shell sweeps each
+need their own representation. So assert that they agree, and that every value
+is inside the block. Landed first it passes on the old ports; then the move and
+the range assertion go in together, and every half-migrated state fails in
+seconds instead of surfacing later as a suite that quietly passed against the
+neighbour's database.
 
 ### Your geometric checks are unanchored: assert the viewport actually applied
 A layout sweep measures the DOM against the DOM — this element against that one,
