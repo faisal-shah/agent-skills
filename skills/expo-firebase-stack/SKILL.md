@@ -3455,6 +3455,34 @@ check fails twice and passes once on identical code, measure before calling it a
 flake — print what each side actually computed. This one was one `node -e` away
 from obvious for weeks.
 
+### …and importing it instead can make the test assert nothing at all
+The remedy above has a failure mode of its own in a workspace monorepo. If the
+other workspaces resolve your shared package to its **built** output rather than
+to `src/`, a test that imports a constant sees `undefined` whenever that build is
+stale — and `expect(payload.channelId).toBe(PUSH_CHANNEL_ID)` is then
+`undefined === undefined`, which **passes**. The test is green, the mutation you
+introduced to falsify it is green, and nothing anywhere is being checked.
+
+It hides well, because the root scripts paper over it: `npm test` usually has a
+`pretest` that builds the package first, so CI is honest and only the tight loop
+(`npx vitest run path/to/one.test.ts`) is lying. That is exactly the loop you use
+while writing the test.
+
+Two cheap defences, and use both:
+
+```ts
+// 1. Prove the import has a value, in the same file as the assertions.
+it('is a real id, not an undefined import', () => {
+  expect(PUSH_CHANNEL_ID).toMatch(/\S/);
+});
+```
+
+2. When you falsify a new assertion, read the failure **message**, not just the
+red. `expected undefined to be 'your-alerts'` is a real falsification;
+`expected undefined to be undefined` never appears at all, because it passes — so
+a mutation that produces *fewer* failures than you expected is the tell. Two
+assertions where only one goes red is the same signal.
+
 ### A shared email domain makes substring matching useless
 Any people-picker that matches on the whole email address will match EVERYONE in
 a single-domain organisation: every letter of `acme.com` appears in every
