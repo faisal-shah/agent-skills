@@ -1944,6 +1944,34 @@ anything — and click the LAST row, which is what a covered row cannot do: an
 automation framework's actionability check fails on precisely that.
 
 
+### A popover opens and closes itself a fraction of a second later
+
+It appears in the right place, then disappears on its own. On web it is fine at
+every width. The give-away is that every appearance lasts the SAME length of
+time — if that constant matches a blur timeout in your own code, the popover is
+not closing, it is being closed because the field lost focus.
+
+**`zIndex` on Android is not a paint order, it is a re-parent.** React Native
+implements it by reordering the children of the parent ViewGroup, which detaches
+and re-attaches the view. If that view contains the focused `TextInput`, the
+re-attach drops focus, the IME slides away, and anything gated on "the field is
+focused" tears down a beat later. CSS `z-index` reparents nothing, so the web
+build is untouched and every browser check stays green — this is a real
+Yoga-vs-CSS seam, not a rendering difference you can squint past.
+
+Never put `zIndex` on an ancestor of a focused input. For draw order on Android
+use `elevation`, which raises the layer without touching the view tree. Better
+still, don't lift anything: render the floating layer at the app root, where it
+needs no help out-painting anyone.
+
+**Diagnosing it is a frame count, not a log.** Screen-record the device, extract
+frames at the native rate, and establish the ORDER — does the popover appear
+before or after the keyboard starts moving? Here the popover appeared with the
+keyboard fully up and the keyboard began dismissing ~80ms later, which rules out
+"the keyboard closed and took the popover with it" and points at the mount. Then
+measure every appearance: a constant duration is a timer, and the timer names the
+file to open.
+
 ### A hand-rolled slider/drag works on web but freezes on device
 A custom `PanResponder` drag bar (slider, scrubber) inside a `ScrollView` is
 fine on web — the pointer maps to a mouse and nothing competes for it — and
