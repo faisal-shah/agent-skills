@@ -2984,6 +2984,105 @@ updates its params rather than remounting it. Any screen that seeds state from a
 param (`useState(initialKey)`) will ignore the new one and leave the user on the
 previously targeted record. Sync the param into state with an effect.
 
+### Every push shows as "Miscellaneous", and the channel you configured sits unused
+
+Android 8+ posts every notification to a channel, and the channel carries the
+importance, the sound and the per-channel switch the user sees in system
+settings. If a message names no channel **and** the manifest declares no default
+one, it is not rejected — it is posted to a fallback the transport owns:
+`fcm_fallback_notification_channel` when FCM displays it, and
+`expo-notifications`' own equivalent when that does. Android labels both
+**"Miscellaneous"**.
+
+So the app creates a nicely named channel, the server sends without naming it,
+and the two never meet. The importance you chose never applies, and the only
+entry the user can configure is a generic one they did not recognise. Nothing
+fails: the notification arrives, correctly worded, in the wrong place.
+
+**Both sides have to name it and neither can check the other at runtime**, so
+put the id in shared code and import it on both:
+
+```ts
+// shared
+export const PUSH_CHANNEL_ID = 'your-alerts';
+export const PUSH_CHANNEL_NAME = 'What these messages are';
+
+// client — BEFORE you hand over a token, or the first message races the channel
+await Notifications.setNotificationChannelAsync(PUSH_CHANNEL_ID, {
+  name: PUSH_CHANNEL_NAME,
+  importance: Notifications.AndroidImportance.HIGH,
+});
+
+// server — every send
+android: { notification: { channelId: PUSH_CHANNEL_ID } }
+```
+
+**Get the importance right the first time.** Android fixes it when the channel is
+created; an app may lower it afterwards but may never raise it — only the person
+can. That also decides how you FIX this in a shipped app: correcting the existing
+channel does nothing on any device that already has it, so mint a **new id** and
+delete the old one, or it lingers in settings as a second, permanently silent
+entry someone will reasonably try to configure.
+
+```ts
+await Notifications.deleteNotificationChannelAsync('old-id').catch(() => {});
+```
+
+Verify on a device — the payload alone will not tell you:
+
+```bash
+adb shell dumpsys notification --noredact | grep "NotificationRecord.*<applicationId>"
+#   ...Notification(channel=your-alerts ...)     <- not fcm_fallback_notification_channel
+adb shell dumpsys notification --noredact | tr '}' '}\n' | grep "mId='your-alerts'"
+#   ...mName=What these messages are, mImportance=4
+```
+
+Pin both halves in tests. They cannot catch a genuine disagreement if both read
+the same constant, but they do catch the field being dropped and a literal
+creeping back in — and this is a bug no suite can otherwise see, because nothing
+in your repo renders a system notification.
+
+### The notification icon is a white blob, or an empty ring
+
+Android draws the **small icon from its alpha channel only**: every opaque pixel
+is painted flat in the tint colour, everything else is dropped. Colour, detail
+and contrast inside the image are all discarded.
+
+Configure nothing and the default is your launcher icon — which is usually
+full-bleed, so its silhouette is the whole square and it renders as a featureless
+blob or ring. It looks like a broken image, and it ships that way because nothing
+in a test suite draws a status bar.
+
+Supply a dedicated silhouette: transparent ground, one opaque glyph, no
+background plate. Pick the single element of your mark that survives at 24dp —
+usually not a wordmark.
+
+**In the bare workflow, `expo-notifications`' `icon`/`color` plugin options do
+nothing** (see "A config plugin you added does nothing"), so write the meta-data
+yourself. Which keys apply depends on **who displays the message**: FCM's SDK
+handles it when a `notification` payload arrives and your app is backgrounded;
+`expo-notifications` handles foreground and local ones. Set the pair you actually
+use, pointing both at the same resources if you use both.
+
+```xml
+<!-- AndroidManifest.xml, inside <application> -->
+<meta-data android:name="com.google.firebase.messaging.default_notification_icon"
+           android:resource="@drawable/ic_notification"/>
+<meta-data android:name="com.google.firebase.messaging.default_notification_color"
+           android:resource="@color/notification_icon_color"/>
+```
+
+A **VectorDrawable** beats five PNG densities here: it stays crisp everywhere and
+it is the only form of the asset that is reviewable in a diff.
+
+```bash
+adb shell dumpsys notification --noredact | grep "NotificationRecord.*<applicationId>"
+#   ...color=0xffRRGGBB...   and an icon id that is a drawable, not your mipmap
+```
+
+`dumpsys` confirms the resource was used; it cannot tell you the silhouette reads
+as anything. **Look at the shade.**
+
 ### What you cannot verify yourself
 No emulator delivers a push. FCM has no emulator, and an Android emulator without
 Play services will not receive one. Registration, rules and pruning are all
