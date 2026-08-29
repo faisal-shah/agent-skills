@@ -3956,6 +3956,40 @@ new one, and the sweep list does not free the old one, so a stray server is left
 behind on every attempt. Match `--port N` as well as `host:port`; a bare number
 cries wolf, because 4000 and 8000 are also millisecond timeouts.
 
+### Your port-cleanup script silently kills nothing on the other platform
+
+A Linux dev box and a macOS build Mac share one repo, so they share the script
+that frees the emulator ports. `ss` and `grep -oP` are Linux-only — macOS has no
+`ss` at all, and BSD `grep` has no `-P`. A kill loop built on them does not
+error on macOS; it matches nothing and reports nothing, so `stop` cheerfully
+prints success while every port stays held.
+
+**Worse is when the kill path and the CHECK path use different tools.** One real
+script killed with `ss` and verified with `lsof`. On macOS that meant killing
+nothing and then correctly reporting "STILL HELD", so cleanup could not clear a
+port at all and exited non-zero with nothing able to fix it. On Linux it meant
+the opposite: `lsof` is often absent from a non-interactive shell that has not
+sourced the toolchain env, so the VERIFICATION was the silent no-op and a
+"cleared" port could still be serving the previous session's code. The comment
+above the kill loop warned about exactly that `lsof` weakness — and the check
+three lines below it used `lsof` anyway.
+
+Have **one** helper answer "who holds this port", used by the status command,
+the kill loop and the verification, picking whichever tool the platform has. If
+three call sites answer the same question separately, two of them are wrong
+somewhere and you will find out on the machine you test on least.
+
+**Check tool availability at the TOP of the script, not inside the helper.**
+`exit` inside `$(...)` ends only the substitution, so a helper that "exits when
+it cannot look" returns an empty list — and an empty list of holders reads as
+"the port is free". The failure and the success have identical output, which is
+the property that makes this class expensive.
+
+Prove it with a real listener rather than a clean box: start something on the
+port, confirm status sees it, run the cleanup, confirm it is gone. "All ports
+clear" on a machine where nothing was running proves only that the script can
+print.
+
 ### Your geometric checks are unanchored: assert the viewport actually applied
 A layout sweep measures the DOM against the DOM — this element against that one,
 this column against the scroller that holds it. That makes every check internally
