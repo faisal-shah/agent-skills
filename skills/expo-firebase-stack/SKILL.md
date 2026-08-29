@@ -1901,6 +1901,49 @@ Use a platform seam: `<select>` on web (keyboard nav, type-ahead and scrolling
 for free), a height-bounded modal list on native. Rendering one button per option
 is the trap — fine with three options, fills the screen with twelve.
 
+### Your popover is positioned correctly and something still draws over it
+
+The floating layer — an autocomplete list, a menu, a tooltip — lands exactly
+where you meant, carries `zIndex: 10` and `elevation: 8`, and a control further
+down the screen still paints across it. Raising its `zIndex` changes nothing.
+
+**react-native-web gives every `View` `position: relative` AND `zIndex: 0`.** So
+every View in your tree is a stacking context, and a `zIndex` inside one cannot
+out-paint anything outside it, at any value. The popover is sealed in by its
+nearest positioned ancestor.
+
+The trap is that **lifting the ancestor appears to fix it.** Raise the box that
+holds the editor and the button beside the popover stops covering it — so the
+bug looks closed. It is not: the popover is still sealed, just one level higher,
+and the next section down the page — a sibling of the box you raised, not of the
+popover — still draws over the BOTTOM of the list. That half-fix survives review
+because the symptom that was seen is gone.
+
+**Render floating layers at the app root, not in place.** One layer as the last
+child of the root, positioned in SCREEN coordinates, publishes to it from
+wherever the anchor is measured. Keep the placement arithmetic relative to the
+field — that is what makes a sideways clamp mean "inside the field" — and add
+the field's own origin at the one point where you hand it over. Nothing can seal
+it in, because nothing is above it. Two details that bite: the layer needs
+`pointerEvents="box-none"` or it swallows every touch in the app, and it should
+be fed by an external store rather than a context holding a node, or every
+keystroke that filters the list re-renders the whole app.
+
+**Check it with `elementFromPoint`, on EVERY row.** Position assertions cannot
+see this: *where is it* and *what is on top of it* are different questions, and a
+suite that only asks the first stays green through the entire bug.
+`elementFromPoint` at a row's centre asks the question a click asks, so it cannot
+be satisfied by a stacking rule that looks right and resolves differently —
+assert the element it returns IS the row (or inside it).
+
+Probe every row, not the first. A list drawn downward is covered from the
+BOTTOM, so the first row is the one least likely to be affected and a first-row
+check passes cleanly against exactly this bug. Widen the query so more than one
+row is showing before probing — one candidate is never far enough down to reach
+anything — and click the LAST row, which is what a covered row cannot do: an
+automation framework's actionability check fails on precisely that.
+
+
 ### A hand-rolled slider/drag works on web but freezes on device
 A custom `PanResponder` drag bar (slider, scrubber) inside a `ScrollView` is
 fine on web — the pointer maps to a mouse and nothing competes for it — and
