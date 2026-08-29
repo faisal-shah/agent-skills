@@ -1951,13 +1951,20 @@ every width. The give-away is that every appearance lasts the SAME length of
 time — if that constant matches a blur timeout in your own code, the popover is
 not closing, it is being closed because the field lost focus.
 
-**`zIndex` on Android is not a paint order, it is a re-parent.** React Native
-implements it by reordering the children of the parent ViewGroup, which detaches
-and re-attaches the view. If that view contains the focused `TextInput`, the
-re-attach drops focus, the IME slides away, and anything gated on "the field is
-focused" tears down a beat later. CSS `z-index` reparents nothing, so the web
-build is untouched and every browser check stays green — this is a real
-Yoga-vs-CSS seam, not a rendering difference you can squint past.
+**Suspect a `zIndex` on an ancestor of the focused input.** In one measured
+case, a style putting `zIndex`/`elevation` on the focused `TextInput`'s ancestor
+at the moment the popover opened cost the field its focus; removing it was the
+fix. The mechanism is UNPROVEN — worth saying, because the obvious explanation
+is wrong: `ViewGroupDrawingOrderHelper` only computes a custom drawing order,
+and under Fabric `ReactViewGroup.updateDrawingOrder` is a no-op with the comment
+"z-order is managed at the C++ layer". A Fabric reorder applied as remove+insert
+would detach and re-attach the view and would explain it, but read the source
+for your version before repeating that as fact.
+
+Either way the rule is cheap and safe: do not put `zIndex` on an ancestor of a
+focused input. Use `elevation` for draw order on Android, or better, render the
+floating layer at the app root so nothing needs lifting. CSS `z-index` reparents
+nothing, so the web build stays green throughout — this is a device-only seam.
 
 Never put `zIndex` on an ancestor of a focused input. For draw order on Android
 use `elevation`, which raises the layer without touching the view tree. Better
