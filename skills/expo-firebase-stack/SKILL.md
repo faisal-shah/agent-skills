@@ -551,6 +551,63 @@ Verify the bundle is self-contained instead of assuming:
 grep -c 'require("<pkg>")' functions/lib/index.js   # must be 0
 ```
 
+### Cloud Build: `Cannot read properties of null (reading 'edgesOut')`
+A functions deploy uploads only the functions directory. If there is no lockfile
+in it, the Node buildpack generates one — `npm install --package-lock-only` —
+and under some builder npm versions that resolution crashes with this arborist
+error. Nothing in the message mentions lockfiles, so it reads like a corrupt
+tree in your own code.
+
+**Why it appears out of nowhere, long after the dependencies stopped changing:**
+unchanged functions restore a cached build layer and never reach that step. Only
+a function with no cache has to resolve from scratch — so a deploy that has
+worked for months breaks on the day you add your *first new function*, and
+breaks only for that one while every other function reports success. The
+dependency set is not what changed; the cache coverage is.
+
+Commit a lockfile in the functions directory so the buildpack runs `npm ci`
+instead of generating one. Build it from the functions `package.json` alone in a
+scratch directory — the workspace-root lockfile is a different tree and is not
+what gets uploaded — and pin it to the versions your suite actually ran against,
+not to whatever a fresh resolution returns today:
+
+```sh
+mkdir /tmp/fnlock && cp functions/package.json /tmp/fnlock/
+cd /tmp/fnlock && npm install --package-lock-only
+```
+
+The lockfile's root `packages[""]` block must declare the same version RANGES as
+the shipped `package.json` or `npm ci` rejects the pair, so if you pinned exact
+versions to generate it, put the ranges back afterwards. Verify with the command
+the buildpack actually runs, rather than deploying to find out:
+
+```sh
+npm ci --dry-run --omit=dev
+```
+
+### A failed function create leaves a stub that blocks every retry
+When a create fails *after* the function record exists but before its service and
+trigger do, the record survives in `FAILED` state with no trigger attached. The
+next deploy reads a triggerless record as an HTTP function and refuses to turn it
+into an event-triggered one:
+
+> Changing from an HTTPS function to a background triggered function is not
+> allowed. Please delete your function and create a new one instead.
+
+That message describes the wreckage of the previous attempt, not your code — the
+second error hides the first. Following it literally (delete, redeploy) just
+reproduces the original failure and leaves a fresh stub, which looks like the
+same error recurring. Delete the stub **and** fix the real cause:
+
+```sh
+gcloud functions delete <name> --region=<region> --gen2
+```
+
+Read the end of the deploy output, not the summary. The per-function
+"Failed to update function X" list is printed for every function in the codebase
+when the operation aborts, including ones that already succeeded; the single line
+naming the actual cause is below it.
+
 ### Rules pass locally, queries fail in production
 The emulator enforces **no indexes at all**, so a query that passes every local
 test can fail the first time a real user runs it. Probe the real query shapes
