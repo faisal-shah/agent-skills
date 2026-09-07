@@ -3607,6 +3607,34 @@ That one parameter is the whole difference between a documented guarantee and an
 enforced one. Any comment of the form "ORDER MATTERS" is a prompt to check
 whether a test would actually notice it being reversed.
 
+### A guard with its own test is not a guard anything calls
+Extracting `requireX(req, id)` and unit-testing it thoroughly proves the guard
+answers correctly. It proves nothing about whether the twenty callables that are
+supposed to consult it actually do — and deleting the line from any one of them
+leaves both the guard's tests and every suite in the repo green, while that one
+action is open to everyone.
+
+The fix is a table, one row per call site, driven through the real handler.
+`onCall()` returns a function carrying **`.run(request)`** for exactly this: pass
+a hand-built `CallableRequest` and the whole handler executes — validation,
+lookups, guard and all. Two assertions per row, because one is not enough:
+
+- the caller who must be refused gets **the guard's own error code**, and
+- the caller who must be admitted is **not** refused with that code.
+
+Payload validation and missing documents fire identically for both callers, so
+only the second assertion distinguishes "refused because of scope" from "refused
+because the fixture was junk" — which is what a single negative row silently
+degrades into. Keep the positive assertion deliberately weak on everything else;
+several rows will then fail for their own honest reasons (no credentials, no
+uploaded object, a precondition), and pinning those pins the fixture instead of
+the promise.
+
+Then hold the table to the source, or it rots the moment someone adds a callable:
+count the `requireX(` call sites in the source directory and assert the table has
+that many rows — with a `> n` guard on the count, so a regex that matches nothing
+cannot pass every assertion at once.
+
 ### Redundant guards make a single mutation lie
 Mutation-testing one guard at a time reports "the test is vacuous" whenever two
 guards each cover the case alone. Break the ref-gate: green. Break the disabled
@@ -3640,6 +3668,16 @@ the test process and mutate correctly whatever the build did; tests that drive a
 So the same mutation run reports honest failures for the in-process tests and
 false passes for the trigger tests, in one output, and the mixture reads as "my
 trigger test is weak".
+
+**A relative import is source; a PACKAGE NAME is a build.** The sentence above
+holds only for the workspace's own `src`. `import { x } from '@scope/shared'`
+resolves through that package's `main`, which in a monorepo is normally its
+compiled `lib/` — so an in-process test importing a sibling workspace runs code
+that is as stale as any trigger's. Mutating shared source and re-running proves
+nothing until `npm run build -w <shared-package>` has run, and the failure mode
+is the reassuring one again: the test passes, and you conclude the test is inert
+when the mutation was never in the binary. Establish which of the two an import
+is before trusting any mutation that crosses a workspace boundary.
 
 General form: before concluding a test is wrong, confirm the artefact under test
 is the artefact you edited — and know which artefact each test actually loads.
