@@ -1227,6 +1227,32 @@ Derive `versionName` from `app.json` so that number means something — a scaffo
 default that never bumps makes "which build is this?" unanswerable, on the device
 and in your crash reports.
 
+### `run:android --no-bundler` against a dev server you started yourself
+Same symptom as the section above — the app renders code you have changed — but
+the installed APK is current and the JS is what is stale, so every check that
+proves the build is fresh passes and tells you nothing.
+
+`--no-bundler` says "do not start Metro, one is already running." Point it at a
+dev server you launched separately and the app installs, connects, signs in and
+behaves normally, while never picking up another source edit. What makes it
+expensive is how thoroughly it looks like your change is wrong:
+
+- Metro logs the rebuild, including a full re-bundle on every app restart;
+- fetching the bundle URL by hand returns a bundle that CONTAINS your edit;
+- force-stopping and relaunching does not help, and neither does a reload;
+- so the reasonable conclusion — "the edit is live, therefore the fix is wrong" —
+  is false, and you go and change working code.
+
+Probe it before believing any negative result: make an unmissable edit (a font
+size, a background colour) rather than reasoning about the subtle one. If the
+probe does not show either, the loop is broken, not the fix.
+
+The fix is to let the tool own its bundler — run `expo run:android` with the
+`EXPO_PUBLIC_*` vars in ITS environment, since those are read from whatever
+started Metro. Use a separately started server only for something that needs it
+in a different mode (seeding through the web build, say), and stop it before the
+native run rather than sharing it.
+
 ### The version number is a store contract, and Android hides that from you
 Adopt this before the first release even if iOS is hypothetical. Fixing it later
 costs a re-release, because by the time App Store Connect tells you, the version
