@@ -3220,10 +3220,14 @@ usually not a wordmark.
 
 **In the bare workflow, `expo-notifications`' `icon`/`color` plugin options do
 nothing** (see "A config plugin you added does nothing"), so write the meta-data
-yourself. Which keys apply depends on **who displays the message**: FCM's SDK
-handles it when a `notification` payload arrives and your app is backgrounded;
-`expo-notifications` handles foreground and local ones. Set the pair you actually
-use, pointing both at the same resources if you use both.
+yourself. **Two components draw a push, and each reads its own keys.** FCM's SDK
+displays a `notification` payload itself when your app is backgrounded or
+killed, from the `com.google.firebase.messaging.*` pair. When the app is in the
+foreground the message reaches `onMessageReceived` instead, and
+`expo-notifications` presents it — if your `setNotificationHandler` says to —
+from the `expo.modules.notifications.*` pair; the same builder draws local
+notifications. Absent its pair, `expo-notifications` falls back to the
+launcher icon with no tint. Set both pairs, pointing at the same resources:
 
 ```xml
 <!-- AndroidManifest.xml, inside <application> -->
@@ -3231,7 +3235,21 @@ use, pointing both at the same resources if you use both.
            android:resource="@drawable/ic_notification"/>
 <meta-data android:name="com.google.firebase.messaging.default_notification_color"
            android:resource="@color/notification_icon_color"/>
+<meta-data android:name="expo.modules.notifications.default_notification_icon"
+           android:resource="@drawable/ic_notification"/>
+<meta-data android:name="expo.modules.notifications.default_notification_color"
+           android:resource="@color/notification_icon_color"/>
 ```
+
+**The symptom of setting only the FCM pair is two styles of the same push:** the
+glyph when the app was closed, the launcher icon when it was open — and it
+ships that way because a device pass sends its test push to a closed app, which
+is the configured path. An app with no `setNotificationHandler` never shows a
+foreground push at all (that is `expo-notifications`' default), so it cannot
+show the split until somebody adds one; set the pair anyway, and pin it: a
+unit test that reads the manifest and asserts each `expo.modules.notifications`
+key resolves to the same resource as its FCM counterpart goes red on exactly the
+line that drifts.
 
 A **VectorDrawable** beats five PNG densities here: it stays crisp everywhere and
 it is the only form of the asset that is reviewable in a diff.
