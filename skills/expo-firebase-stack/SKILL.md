@@ -2900,6 +2900,72 @@ Make the absence of the key an explicit early return rather than something that
 throws mid sign-in. Half-configured web push should do nothing, visibly by
 design, while native keeps working.
 
+### Two banners per background web push, and none at all at a focused tab
+Both come from the Firebase SDK's service-worker half, and both are invisible
+until somebody watches a real push arrive in a browser — which is the step that
+stays open longest.
+
+Read the SDK's `onPush` before writing a handler. When no tab of the app is
+visible and the message carries a `notification` payload, the SDK **shows the
+notification itself** — `showNotification(wrapInternalPayload(...))` — and
+*then* calls your `onBackgroundMessage`. A handler that calls
+`showNotification` too, which is what every tutorial shows, draws a **second
+banner** for every background push. The SDK's own is untagged and iconless, and
+it is a dead end on click: its `notificationclick` handler
+`stopImmediatePropagation()`s yours and, with no `fcmOptions.link` in the
+message, returns without focusing or opening anything.
+
+When a tab IS visible, the SDK hands the message to the page and shows nothing;
+it is drawn only if the page registered `onMessage`. Apps that never did get
+**no banner while open** — often documented as deliberate, on the argument that
+the in-app badge is already moving — and the two facts together mean the shape
+that ships is *two banners closed, zero open*, with every unit test green.
+
+If the product answer is "show it in every state" (it usually is once someone
+sees the split), the simplest correct worker has **no Firebase SDK in it**:
+
+```js
+// firebase-messaging-sw.js — the whole thing
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('push', (event) => {
+  let payload = null;
+  try { payload = event.data?.json() ?? null; } catch {}
+  if (!payload) return;
+  const { title, body } = payload.notification ?? {};
+  const data = payload.data ?? {};
+  event.waitUntil(self.registration.showNotification(title ?? 'App', {
+    body: body ?? '', icon: '/favicon.ico',
+    tag: data.cardId ?? data.boardId ?? 'app',   // collapse repeats per record
+    data,
+  }));
+});
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true })
+    .then((wins) => {
+      const open = wins.find((w) => w.url.startsWith(self.location.origin));
+      return open ? open.focus() : clients.openWindow('/');
+    }));
+});
+```
+
+The push body is FCM's web push JSON — `notification` (title, body) and `data`
+— the same two fields the SDK's handler hands out. One listener, one presenter,
+no visibility split, no duplicate, and no second copy of the Firebase config
+to hold in step with the page's. `getToken` on the page needs only a
+registration (`getTokenInternal` → `pushManager.subscribe`), not a
+Firebase-aware worker, so nothing about minting changes. `skipWaiting` because
+a new worker otherwise waits until every tab of the app is closed, and someone
+with a standing tab would stay on the old code for weeks; a worker that
+intercepts no fetches has nothing to wait for.
+
+Test the worker file directly — it is the one piece of the path nothing else
+executes. `node:vm` with a fake `self`/`clients`, dispatch a `push` with
+`data.json()` returning the payload, and assert what `showNotification` got.
+Hold a **visible, focused window open** in the fake `clients.matchAll` for the
+main case, so a visibility check creeping back goes red on the test that says
+so, not on some other one by accident.
+
 ### Web push needs a THIRD thing: the prompt must follow a click
 Permission is not configuration, and it is the part a browser refuses on your
 behalf without telling you. `Notification.requestPermission()` **consumes
@@ -3273,6 +3339,45 @@ drive the web build with the route in the query string (e2e), and on a device
 schedule a **local** notification carrying the same payload, then tap it. That
 covers the listener, the decode, the queue and the navigation — everything except
 FCM's own hop, which is exactly the part no test can reach.
+
+The *presenter* half is testable the same way, and it matters because a local
+notification is drawn by the same `ExpoNotificationBuilder` as a foreground
+push — so it exercises exactly the component a device pass never reaches (see
+the icon section). No button in the app is needed: with a debug build attached
+to Metro, drive it from the **Hermes inspector**.
+
+```js
+// Metro lists the targets; the Origin must equal Metro's server base URL EXACTLY.
+// Expo checks it beyond what dev-middleware does: `localhost` opens and is then
+// terminated (close 1006, nothing logged) when Metro thinks of itself as 127.0.0.1.
+const t = (await (await fetch('http://localhost:8081/json')).json())[0];
+const ws = new WebSocket(t.webSocketDebuggerUrl, { origin: 'http://127.0.0.1:8081' });
+```
+
+Two things about evaluating there: Hermes' `Runtime.evaluate` **ignores
+`awaitPromise`** (you get the Promise's internals back), so kick the async work
+off, park its outcome on a global and poll for it; and do NOT require modules by
+Metro's verbose name (`__r('../node_modules/...')`) — the lookup failed here
+("Requiring unknown module") and the app died with a SIGSEGV on the JS thread
+twenty milliseconds later. Go through the JSI
+registry expo-modules-core installs instead, which needs no module ids at all:
+
+```js
+const M = globalThis.expo.modules;
+await M.ExpoNotificationChannelManager.setNotificationChannelAsync('alerts', {
+  name: 'Alerts', importance: 6,   // expo's AndroidImportance.HIGH — see below
+});
+await M.ExpoNotificationScheduler.scheduleNotificationAsync('probe-1',
+  { title: 'Title', body: 'Body', data: { type: 'mention' } },
+  { type: 'channel', channelId: 'alerts' });   // what the JS wrapper builds from { channelId }
+```
+
+Then `adb shell dumpsys notification --noredact`, and look at the shade.
+**expo's `AndroidImportance` is its own scale, not Android's**: `LOW = 4`,
+`DEFAULT = 5`, `HIGH = 6`. Pass Android's `4` for "high" and you create — or
+LOWER — the channel at LOW, and an app may never raise a channel again; on an
+emulator `pm clear <pkg>` is the only way back. The JS wrapper hides this
+because you write `AndroidImportance.HIGH`; the raw module does not.
 
 ## Dead-code and dependency audits
 
