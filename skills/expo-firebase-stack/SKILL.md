@@ -551,6 +551,59 @@ Verify the bundle is self-contained instead of assuming:
 grep -c 'require("<pkg>")' functions/lib/index.js   # must be 0
 ```
 
+### Every function fails its start-up probe with `Cannot find module '<dep>'`
+`firebase deploy --only functions` reports `Failed to update function …` for
+EVERY function, Cloud Run says the container "failed to start and listen on the
+port", and the revision's log has the real line: `Cannot find module 'fflate'`
+(or any package the functions never import). Nothing is down: Cloud Run keeps
+routing to the last ready revision, so production is unchanged and the deploy
+simply did not land. Confirm that first —
+`gcloud run services describe <svc> --format="value(status.traffic[0].revisionName)"`
+still names the old revision.
+
+The module belongs to your **workspace package**, not to the functions. The
+shared package that the bundler inlines (previous section) is also where
+app-only code lives — a spreadsheet writer, a client-side crypto helper — and
+that code has its own npm dependency. When esbuild inlines the package from its
+**compiled CommonJS `lib/`**, nothing can be tree-shaken: every module of the
+package comes along, its `require("<dep>")` with it, into a functions
+`package.json` that never declared it. Cloud Build installs exactly that
+manifest, the container starts, the require throws, the probe fails.
+
+**Nothing local can show it.** The emulator, the unit tests and the integration
+suite all resolve the hoisted root `node_modules`, where the dependency exists
+because the app declared it. The bundle is wrong on your disk too — it just
+happens to run.
+
+Three things, together:
+
+- **Inline the workspace package from its TypeScript source, not `lib/`** —
+  resolve `@scope/shared` to `packages/shared/src/index.ts` in the esbuild
+  plugin. Only ESM input is tree-shakeable.
+- **Mark the package `"sideEffects": false`** so esbuild may drop the modules
+  the functions never reach.
+- **No `require()` in the functions entry.** One lazy
+  `require('./emulator-only')` in an otherwise-ESM entry makes esbuild wrap
+  every module in a lazy initialiser and switches tree-shaking off for the
+  whole graph — the app-only module and its dependency stay in, now inside an
+  init function that still runs at start-up. Make it a static import; a
+  handler that is imported but not *exported* is not deployed, because the
+  deploy discovers functions by walking the entry's exports.
+
+Then pin it, because the failure is silent until Cloud Build: build the real
+bundle in a test and hold every bare `require()` in it to a declared dependency.
+
+```ts
+execFileSync(process.execPath, ['esbuild.config.mjs'], { cwd: FUNCTIONS });
+const bundle = readFileSync('lib/index.js', 'utf8');
+const required = [...bundle.matchAll(/\brequire\("([^"]+)"\)/g)].map((m) => m[1]);
+const undeclared = required.filter((s) => !builtins.has(s) && !(packageOf(s) in pkg.dependencies));
+expect(undeclared).toEqual([]);   // red on the broken config: ['fflate']
+```
+
+A missing name there is either a dependency to declare or — as here — a module
+that should not be in the bundle at all.
+
 ### Cloud Build: `Cannot read properties of null (reading 'edgesOut')`
 A functions deploy uploads only the functions directory. If there is no lockfile
 in it, the Node buildpack generates one — `npm install --package-lock-only` —
@@ -1252,6 +1305,32 @@ The fix is to let the tool own its bundler — run `expo run:android` with the
 started Metro. Use a separately started server only for something that needs it
 in a different mode (seeding through the web build, say), and stop it before the
 native run rather than sharing it.
+
+### A release build that finished in eleven seconds shipped the previous label
+The sign-in label (or whatever you inject through an `EXPO_PUBLIC_*` value at
+release time — a commit sha, a build date) reads the PREVIOUS build's value on a
+release APK you just built from a new commit. `BUILD SUCCESSFUL` in eleven
+seconds is the tell: a full release bundle takes minutes.
+
+Gradle does not know `EXPO_PUBLIC_*` exists. The bundling task
+(`createBundleReleaseJsAndAssets`) declares its inputs as the JS sources and
+the bundler config, so a commit that changed no JavaScript — a manifest fix, a
+Gradle version bump, docs — leaves it `UP-TO-DATE`, and the previous bundle,
+with the previous environment inlined, is packaged again under the new
+`versionName`. Every check that reads the APK's manifest passes.
+
+Force the bundle to rebuild (`--rerun-tasks`, or delete the task's output
+directory under `app/build/generated/assets/`) and check the bundle itself
+before installing — not the manifest, not the file date:
+
+```sh
+unzip -p app/build/outputs/apk/release/app-<abi>-release.apk assets/index.android.bundle \
+  | grep -ao "$(git rev-parse --short HEAD)"
+```
+
+(Hermes stores strings as UTF-16, so a grep for a longer token can miss — see
+"Grepping a release bundle for a string gives FALSE NEGATIVES"; a short ASCII
+sha is found reliably.)
 
 ### The version number is a store contract, and Android hides that from you
 Adopt this before the first release even if iOS is hypothetical. Fixing it later
