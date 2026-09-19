@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-    echo "Usage: $0 [--uninstall] [--copilot|--codex|--claude|--all] [--skills-dir DIR] [options]"
+    echo "Usage: $0 [--uninstall] [--copilot|--codex|--claude|--all] [--skills-dir DIR]"
     echo ""
     echo "Install all:        $0"
     echo "Copilot only:       $0 --copilot"
@@ -12,15 +12,9 @@ usage() {
     echo "Back-compat custom: $0 /path/to/skills"
     echo "Uninstall all:      $0 --uninstall"
     echo ""
-    echo "Options:"
-    echo "  --no-profiles             Skip build123d profile files"
-    echo "  --install-shell-aliases   Install codex-build123d and copilot-build123d helpers into ~/.bashrc"
-    echo "  --smoke-test-build123d    Run build123d-mcp --version through uv"
-    echo ""
     echo "Installs skills: circuit-sim, commit, elmer-fem, expo-firebase-stack,"
     echo "                 mermaid, memory, netlist-to-schematic, playwright-cli,"
     echo "                 robust-doc, shellcheck, technical-report, uv"
-    echo "Installs profile: build123d"
     exit 1
 }
 
@@ -30,9 +24,6 @@ INSTALL_CODEX=false
 INSTALL_CLAUDE=false
 SAW_TARGET_FLAG=false
 SKILLS_DIR=""
-NO_PROFILES=false
-INSTALL_SHELL_ALIASES=false
-SMOKE_TEST_BUILD123D=false
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -63,9 +54,6 @@ while [ "$#" -gt 0 ]; do
         --skills-dir=*)
             SKILLS_DIR="${1#*=}"
             ;;
-        --no-profiles) NO_PROFILES=true ;;
-        --install-shell-aliases) INSTALL_SHELL_ALIASES=true ;;
-        --smoke-test-build123d) SMOKE_TEST_BUILD123D=true ;;
         -h|--help) usage ;;
         --)
             shift
@@ -89,94 +77,6 @@ if [ -n "$SKILLS_DIR" ] && [ "$SAW_TARGET_FLAG" = true ]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
-# A comma-separated list rather than one name: with three targets, asking for two
-# of them must not silently mean all three. A bare install names the original two
-# explicitly, so adding Claude did not widen the default.
-agent_target() {
-    if [ "$SAW_TARGET_FLAG" = false ]; then
-        echo "codex,copilot"
-        return
-    fi
-    targets=""
-    if [ "$INSTALL_CODEX" = true ]; then targets="$targets,codex"; fi
-    if [ "$INSTALL_COPILOT" = true ]; then targets="$targets,copilot"; fi
-    if [ "$INSTALL_CLAUDE" = true ]; then targets="$targets,claude"; fi
-    echo "${targets#,}"
-}
-
-require_uv() {
-    command -v uv >/dev/null 2>&1 || {
-        echo "uv is required for build123d profile setup." >&2
-        exit 1
-    }
-}
-
-install_build123d_profile() {
-    require_uv
-    local target
-    target="$(agent_target)"
-    local args=(run --upgrade --python 3.12 "$SCRIPT_DIR/scripts/install_build123d_profile.py" --target "$target")
-    if [ "$UNINSTALL" = true ]; then
-        args+=(--uninstall)
-    fi
-    uv "${args[@]}"
-}
-
-smoke_test_build123d() {
-    require_uv
-    uv tool run --python 3.12 --from "git+https://github.com/pzfreo/build123d-mcp@main" build123d-mcp --version
-}
-
-strip_alias_block() {
-    local profile="$1"
-    local tmp
-    tmp="$(mktemp)"
-    if [ -f "$profile" ]; then
-        awk '
-            /^# >>> agent-skills build123d aliases >>>$/ { skip = 1; next }
-            /^# <<< agent-skills build123d aliases <<<$/ { skip = 0; next }
-            !skip { print }
-        ' "$profile" > "$tmp"
-    else
-        : > "$tmp"
-    fi
-    cat "$tmp" > "$profile"
-    rm -f "$tmp"
-}
-
-install_shell_aliases() {
-    local source="$SCRIPT_DIR/profiles/build123d/aliases/agent-modes.sh"
-    local target_dir="$HOME/.codex/shell"
-    local target="$target_dir/agent-modes.sh"
-    local profile="$HOME/.bashrc"
-
-    mkdir -p "$target_dir"
-    cp "$source" "$target"
-    touch "$profile"
-    strip_alias_block "$profile"
-    {
-        printf '\n# >>> agent-skills build123d aliases >>>\n'
-        printf '. "%s"\n' "$target"
-        printf '# <<< agent-skills build123d aliases <<<\n'
-    } >> "$profile"
-    echo "Installed shell launch helpers to $target"
-    echo "Updated shell profile $profile"
-}
-
-uninstall_shell_aliases() {
-    local target="$HOME/.codex/shell/agent-modes.sh"
-    local profile="$HOME/.bashrc"
-
-    if [ -f "$target" ]; then
-        rm -f "$target"
-        echo "Removed shell launch helpers from $target"
-    fi
-    if [ -f "$profile" ]; then
-        strip_alias_block "$profile"
-        echo "Removed build123d alias block from $profile"
-    fi
-}
 
 PASSTHRU=()
 if [ -n "$SKILLS_DIR" ]; then
@@ -244,20 +144,4 @@ if [ -z "$SKILLS_DIR" ] && [ "$UNINSTALL" = false ]; then
         cp "$SCRIPT_DIR/claude-instructions.md" "$claude_target"
         echo "Installed claude-instructions.md to $claude_target"
     fi
-fi
-
-if [ -z "$SKILLS_DIR" ] && [ "$NO_PROFILES" = false ]; then
-    install_build123d_profile
-fi
-
-if [ -z "$SKILLS_DIR" ] && [ "$INSTALL_SHELL_ALIASES" = true ]; then
-    if [ "$UNINSTALL" = true ]; then
-        uninstall_shell_aliases
-    else
-        install_shell_aliases
-    fi
-fi
-
-if [ -z "$SKILLS_DIR" ] && [ "$SMOKE_TEST_BUILD123D" = true ] && [ "$UNINSTALL" = false ]; then
-    smoke_test_build123d
 fi

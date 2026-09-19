@@ -1,11 +1,11 @@
 <#
 .SYNOPSIS
-    Install or uninstall agent skills and profiles.
+    Install or uninstall agent skills.
 
 .DESCRIPTION
     Iterates skills/*/install.ps1 and runs each with the provided arguments.
     Defaults to both ~/.copilot/skills and ~/.codex/skills if no path is
-    provided. Also installs the build123d profile unless -NoProfiles is used.
+    provided.
 
 .EXAMPLE
     .\install.ps1
@@ -20,9 +20,6 @@
     .\install.ps1 -Claude
 
 .EXAMPLE
-    .\install.ps1 -InstallPowerShellAliases
-
-.EXAMPLE
     .\install.ps1 -Uninstall
 #>
 param(
@@ -32,14 +29,11 @@ param(
     [switch]$Claude,
     [switch]$All,
     [switch]$Uninstall,
-    [switch]$NoProfiles,
-    [switch]$InstallPowerShellAliases,
-    [switch]$SmokeTestBuild123d,
     [switch]$Help
 )
 
 function Show-Usage {
-    Write-Output "Usage: .\install.ps1 [-Uninstall] [-Copilot|-Codex|-Claude|-All] [-SkillsDir <path>] [options]"
+    Write-Output "Usage: .\install.ps1 [-Uninstall] [-Copilot|-Codex|-Claude|-All] [-SkillsDir <path>]"
     Write-Output ""
     Write-Output "  Install all:       .\install.ps1"
     Write-Output "  Copilot only:      .\install.ps1 -Copilot"
@@ -48,124 +42,10 @@ function Show-Usage {
     Write-Output "  Custom skills dir: .\install.ps1 -SkillsDir C:\my\skills"
     Write-Output "  Uninstall all:     .\install.ps1 -Uninstall"
     Write-Output ""
-    Write-Output "Options:"
-    Write-Output "  -NoProfiles                 Skip build123d profile files"
-    Write-Output "  -InstallPowerShellAliases    Install codex-build123d and copilot-build123d helpers"
-    Write-Output "  -SmokeTestBuild123d          Run build123d-mcp --version through uv"
-    Write-Output ""
     Write-Output "Installs skills: circuit-sim, commit, elmer-fem, expo-firebase-stack,"
     Write-Output "                 mermaid, memory, netlist-to-schematic, playwright-cli,"
     Write-Output "                 robust-doc, shellcheck, technical-report, uv"
-    Write-Output "Installs profile: build123d"
     exit 1
-}
-
-function Test-CommandAvailable {
-    param([string]$Name)
-    return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
-}
-
-# A comma-separated list rather than one name: with three targets, asking for two
-# of them must not silently mean all three. A bare install names the original two
-# explicitly, so adding Claude did not widen the default.
-function Get-AgentTarget {
-    if (-not $SawTargetFlag) { return "codex,copilot" }
-    $targets = @()
-    if ($Codex -or $All)   { $targets += "codex" }
-    if ($Copilot -or $All) { $targets += "copilot" }
-    if ($Claude -or $All)  { $targets += "claude" }
-    return ($targets -join ",")
-}
-
-function Invoke-Build123dProfileInstaller {
-    param([string]$Target)
-
-    if (-not (Test-CommandAvailable "uv")) {
-        throw "uv is required to install the build123d profile."
-    }
-
-    $installer = Join-Path $ScriptRoot "scripts\install_build123d_profile.py"
-    $uvArgs = @("run", "--upgrade", "--python", "3.12", $installer, "--target", $Target)
-    if ($Uninstall) {
-        $uvArgs += "--uninstall"
-    }
-
-    & uv @uvArgs
-    if ($LASTEXITCODE -ne 0) {
-        throw "build123d profile installer failed."
-    }
-}
-
-function Invoke-Build123dSmokeTest {
-    if (-not (Test-CommandAvailable "uv")) {
-        throw "uv is required to smoke-test build123d-mcp."
-    }
-
-    & uv tool run --python 3.12 --from "git+https://github.com/pzfreo/build123d-mcp@main" build123d-mcp --version
-    if ($LASTEXITCODE -ne 0) {
-        throw "build123d-mcp smoke test failed."
-    }
-}
-
-function Install-PowerShellLaunchHelper {
-    $source = Join-Path $ScriptRoot "profiles\build123d\aliases\agent-modes.ps1"
-    $targetDir = Join-Path (Join-Path $HOME ".codex") "powershell"
-    $target = Join-Path $targetDir "agent-modes.ps1"
-
-    New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
-    Copy-Item $source $target -Force
-
-    $profilePath = $PROFILE.CurrentUserAllHosts
-    if (-not $profilePath) { $profilePath = $PROFILE }
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $profilePath) | Out-Null
-
-    $escapedTarget = $target.Replace("'", "''")
-    $start = "# >>> agent-skills build123d aliases >>>"
-    $end = "# <<< agent-skills build123d aliases <<<"
-    $block = @"
-$start
-. '$escapedTarget'
-$end
-"@
-
-    $content = ""
-    if (Test-Path $profilePath) {
-        $content = Get-Content -Raw $profilePath
-    }
-
-    $pattern = "(?ms)^# >>> agent-skills build123d aliases >>>.*?^# <<< agent-skills build123d aliases <<<\r?\n?"
-    if ($content -match $pattern) {
-        $content = [regex]::Replace($content, $pattern, $block + [Environment]::NewLine)
-    } else {
-        if ($content -and -not $content.EndsWith([Environment]::NewLine)) {
-            $content += [Environment]::NewLine
-        }
-        $content += $block + [Environment]::NewLine
-    }
-
-    Set-Content -Path $profilePath -Value $content -Encoding UTF8
-    Write-Output "Installed PowerShell launch helpers to $target"
-    Write-Output "Updated PowerShell profile $profilePath"
-}
-
-function Uninstall-PowerShellLaunchHelper {
-    $target = Join-Path (Join-Path (Join-Path $HOME ".codex") "powershell") "agent-modes.ps1"
-    if (Test-Path $target) {
-        Remove-Item -Force $target
-        Write-Output "Removed PowerShell launch helpers from $target"
-    }
-
-    $profilePath = $PROFILE.CurrentUserAllHosts
-    if (-not $profilePath) { $profilePath = $PROFILE }
-    if (Test-Path $profilePath) {
-        $content = Get-Content -Raw $profilePath
-        $pattern = "(?ms)^# >>> agent-skills build123d aliases >>>.*?^# <<< agent-skills build123d aliases <<<\r?\n?"
-        $newContent = [regex]::Replace($content, $pattern, "")
-        if ($newContent -ne $content) {
-            Set-Content -Path $profilePath -Value $newContent -Encoding UTF8
-            Write-Output "Removed build123d alias block from $profilePath"
-        }
-    }
 }
 
 if ($Help) { Show-Usage }
@@ -236,20 +116,4 @@ if (-not $SkillsDir -and -not $Uninstall) {
         Copy-Item $claudeSource $claudeTarget -Force
         Write-Output "Installed claude-instructions.md to $claudeTarget"
     }
-}
-
-if (-not $SkillsDir -and -not $NoProfiles) {
-    Invoke-Build123dProfileInstaller -Target (Get-AgentTarget)
-}
-
-if (-not $SkillsDir -and $InstallPowerShellAliases) {
-    if ($Uninstall) {
-        Uninstall-PowerShellLaunchHelper
-    } else {
-        Install-PowerShellLaunchHelper
-    }
-}
-
-if (-not $SkillsDir -and $SmokeTestBuild123d -and -not $Uninstall) {
-    Invoke-Build123dSmokeTest
 }

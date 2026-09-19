@@ -31,12 +31,6 @@ This one is project-specific, so the root installer skips it (it carries a
 `.no-default-install` marker). Install it explicitly from its own directory, e.g.
 `./skills/sabeel-color-scheme/install.sh --claude`.
 
-## Profiles
-
-| Profile | Description | Launch |
-|---------|-------------|--------|
-| [build123d](profiles/build123d/) | Installs a Codex profile and Copilot custom agent for build123d-mcp CAD modeling, drawing, measurement, rendering, and export workflows | `codex --profile build123d` / `copilot --agent build123d` |
-
 ## Installation
 
 Install all skills at once, or pick individual ones. Installers default to both
@@ -55,9 +49,6 @@ identical to a current one. Re-run the installer after every pull.
 ./install.sh --codex                                # all skills → Codex only
 ./install.sh --claude                               # all skills → Claude Code only
 ./install.sh --all                                  # all skills → all three
-./install.sh --no-profiles                          # skills and instructions only
-./install.sh --install-shell-aliases                # add codex-build123d and copilot-build123d helpers
-./install.sh --smoke-test-build123d                 # verify build123d-mcp launches
 ./skills/circuit-sim/install.sh --copilot           # individual skill
 ./install.sh --skills-dir .github/skills            # custom path
 ./install.sh --uninstall                            # remove from both default dirs
@@ -71,9 +62,6 @@ identical to a current one. Re-run the installer after every pull.
 .\install.ps1 -Codex                                # all skills → Codex only
 .\install.ps1 -Claude                              # all skills → Claude Code only
 .\install.ps1 -All                                 # all skills → all three
-.\install.ps1 -NoProfiles                           # skills and instructions only
-.\install.ps1 -InstallPowerShellAliases             # add codex-build123d and copilot-build123d helpers
-.\install.ps1 -SmokeTestBuild123d                   # verify build123d-mcp launches
 .\skills\circuit-sim\install.ps1 -Copilot           # individual skill
 .\install.ps1 -SkillsDir C:\my\skills               # custom path
 .\install.ps1 -Uninstall                            # remove from both default dirs
@@ -102,86 +90,6 @@ overwrite a differing file, the previous version is kept as `CLAUDE.md.bak`.
 
 Bare `./install.sh` still targets only Copilot and Codex. `--all` means all three.
 
-The build123d profile installs for whichever targets are named. Claude Code has no
-`--profile`, so its port is a plugin directory at `~/.claude/profiles/build123d`,
-loaded per launch with `claude --plugin-dir ... --agent build123d` rather than
-installed globally. See [profiles/build123d](profiles/build123d/).
-
-The default installer also creates profile files:
-
-| Agent | Installed file |
-|-------|----------------|
-| OpenAI Codex | `~/.codex/build123d.config.toml` |
-| OpenAI Codex | `~/.codex/profiles/build123d/instructions.md` |
-| OpenAI Codex | `~/.codex/profiles/build123d/skills/b123d-modeling/SKILL.md` |
-| OpenAI Codex | `~/.codex/profiles/build123d/skills/b123d-drawing/SKILL.md` |
-| OpenAI Codex | `~/.codex/profiles/build123d/viewer/live_viewer_pyvista.py` (POSIX) |
-| GitHub Copilot CLI | `~/.copilot/agents/build123d.agent.md` |
-| GitHub Copilot CLI | `~/.copilot/profiles/build123d/instructions.md` |
-| GitHub Copilot CLI | `~/.copilot/profiles/build123d/skills/b123d-modeling/SKILL.md` |
-| GitHub Copilot CLI | `~/.copilot/profiles/build123d/skills/b123d-drawing/SKILL.md` |
-| GitHub Copilot CLI | `~/.copilot/profiles/build123d/viewer/live_viewer_pyvista.py` (POSIX) |
-| Claude Code | `~/.claude/profiles/build123d/` (plugin dir: `.mcp.json`, `agents/`, `skills/`, viewer) |
-
-The build123d profile resolves its workflow files from the installed `build123d-mcp`
-package during installation. It installs the server from the `build123d-mcp` main
-branch (which provides the live session viewer) as a persistent `uv` tool and
-launches that installed executable directly:
-
-```text
-uv tool install --force --python 3.12 git+https://github.com/pzfreo/build123d-mcp@main
-```
-
-Launching the installed executable (rather than `uv tool run --from git+...`)
-avoids a ~1.5 s per-launch git re-resolution that raced MCP-host startup timeouts
-and intermittently dropped the server on session resume. Re-run the installer to
-update to a newer `main`.
-
-On POSIX hosts each server instance also binds a live-viewer socket at
-`/tmp/build123d-mcp.<pid>.sock`; open the rotatable 3D window with the
-`build123d-viewer` helper. See [profiles/build123d/](profiles/build123d/) for
-details.
-
-### Launch Helpers
-
-Shell aliases are opt-in. The default install does not modify shell startup
-files.
-
-Install PowerShell helpers on Windows:
-
-```powershell
-.\install.ps1 -InstallPowerShellAliases
-```
-
-Install Bash helpers on Linux, macOS, or WSL:
-
-```bash
-./install.sh --install-shell-aliases
-```
-
-Installed helpers:
-
-| Helper | Command |
-|--------|---------|
-| `codex-build123d` | `codex --profile build123d` |
-| `copilot-build123d` | `copilot --agent build123d` |
-| `build123d-viewer` | open the live 3D viewer (Bash/POSIX only) |
-
-The PowerShell installer writes `~/.codex/powershell/agent-modes.ps1` and adds
-a marked source block to the current-user PowerShell profile. The Bash installer
-writes `~/.codex/shell/agent-modes.sh` and adds a marked source block to
-`~/.bashrc`.
-
-Remove the helpers with:
-
-```powershell
-.\install.ps1 -Uninstall -InstallPowerShellAliases
-```
-
-```bash
-./install.sh --uninstall --install-shell-aliases
-```
-
 ## Prerequisites
 
 All skills need **Python 3.10+** and [**uv**](https://docs.astral.sh/uv/) (recommended script runner).
@@ -200,7 +108,6 @@ Skill-specific tools:
 | shellcheck | shellcheck | `pip install shellcheck-py` | `pip install shellcheck-py` / `sudo apt install shellcheck` |
 | PSScriptAnalyzer | shellcheck | `Install-Module PSScriptAnalyzer -Scope CurrentUser` | `Install-Module PSScriptAnalyzer -Scope CurrentUser` |
 | playwright-cli | playwright-cli | Bundled with Copilot CLI Playwright MCP server | Same |
-| build123d-mcp | build123d profile | Installed and launched by `uv` | Installed and launched by `uv` |
 
 > **Note:** ParaView is a GUI visualization tool for inspecting Elmer results — it is not
 > invoked programmatically by the skill and is not required to run simulations.
@@ -223,14 +130,6 @@ agent-skills/
 ├── .gitattributes          ← line-ending rules (LF for .sh, CRLF for .ps1)
 ├── install.sh              ← install all skills (bash)
 ├── install.ps1             ← install all skills (PowerShell)
-├── scripts/
-│   └── install_build123d_profile.py
-├── profiles/
-│   └── build123d/
-│       ├── README.md
-│       └── aliases/
-│           ├── agent-modes.ps1
-│           └── agent-modes.sh
 ├── LICENSE                 ← MIT
 └── skills/
     ├── circuit-sim/        ← ngspice simulation skill
