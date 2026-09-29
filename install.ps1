@@ -68,8 +68,8 @@ if ($All)        { $Passthru["All"] = $true }
 
 Get-ChildItem -Path (Join-Path $ScriptRoot "skills") -Directory | ForEach-Object {
     # A skill can opt OUT of the bulk install with a .no-default-install marker;
-    # it is then installable only via its own skills/<name>/install.ps1. Used for
-    # project-specific skills (e.g. sabeel-color-scheme).
+    # it is then installable only via its own skills/<name>/install.ps1, for
+    # project-specific skills that most users of this repo do not want.
     if (Test-Path (Join-Path $_.FullName ".no-default-install")) {
         return
     }
