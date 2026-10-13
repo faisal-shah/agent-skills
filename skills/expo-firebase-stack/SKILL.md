@@ -109,6 +109,14 @@ on such a host (Pixel 6, API 35): **805 s to boot, ~14 s per `screencap`**,
 vCPU. Input is usable; screenshot-based UI verification effectively is not.
 Builds are unaffected — Gradle needs no KVM.
 
+**KVM present but refused, on a host where it worked yesterday.** On a desktop
+distro `/dev/kvm` access usually comes from a logind seat ACL granted to whoever
+holds the graphical seat, not from the `kvm` group. A display-manager greeter on
+the seat, or the device node being recreated, takes it away without a reboot:
+`getfacl /dev/kvm` lists only `user:sddm:rw-` (or `gdm`), and the emulator falls
+back to software. Restore it now with `sudo setfacl -m u:$USER:rw /dev/kvm`, and
+for good with `sudo gpasswd -a $USER kvm` plus one fresh login.
+
 A fresh AVD also comes up on `com.android.settings.FallbackHome` rather than the
 launcher, so `screencap` returns a blank image and looks broken. It is
 unprovisioned:
@@ -520,6 +528,38 @@ reports as a CORS error, because there are no headers on a request that never
 completed. Put the literal `127.0.0.1` in client config; keep `10.0.2.2` for the
 Android emulator reaching the host.
 
+### Every function fails to build in a project that belongs to an organization
+`Could not build the function due to a missing permission on the build service
+account` (a gen-1 function says `Access to bucket gcf-sources-… denied`).
+Organizations created since 2024 enforce
+`iam.automaticIamGrantsForDefaultServiceAccounts`, so the Compute Engine default
+service account, which both builds and runs gen-2 functions, no longer gets
+Editor. A personal project never shows this. Grant what the code uses:
+`roles/cloudbuild.builds.builder` and `roles/logging.logWriter` to build, plus
+the runtime's own (`roles/datastore.user`, `roles/firebaseauth.admin`,
+`roles/firebasecloudmessaging.admin`, …). A gen-1 function runs as
+`<project>@appspot.gserviceaccount.com` and needs its own grants. Then delete
+the `FAILED` stubs (below) before redeploying.
+
+### Callables: "Failed to set invoker", then an HTML 401
+The same organizations enforce domain-restricted sharing
+(`iam.allowedPolicyMemberDomains`), which refuses `allUsers` — and a callable
+needs `allUsers` as its Cloud Run invoker, because the function checks the
+caller itself. Override it for the one project
+(`gcloud org-policies set-policy` with `allowAll` on `projects/<number>`; needs
+`roles/orgpolicy.policyAdmin` on the organization, which an org admin can grant
+themselves). A redeploy does not retry the invoker on unchanged functions, so
+bind it directly for each callable:
+
+```sh
+gcloud run services add-iam-policy-binding <function-name-lowercased> \
+  --member=allUsers --role=roles/run.invoker --region=<region>
+```
+
+For a few minutes afterwards a call with a valid ID token gets an HTML 401, "The
+access token could not be verified", from Cloud Run's front end. That is
+propagation, not your token: wait.
+
 ### First deploy of a Firestore-trigger function: Eventarc permission denied
 `Validation failed ... Permission denied while using the Eventarc Service Agent`
 on the *first* trigger deploy in a project. The deploy enables Eventarc, but the
@@ -727,6 +767,35 @@ append-only event log (replaying that would double entries).
 
 That AsyncStorage survives the kill is already proven by auth staying signed in
 across restarts — it is the same primitive.
+
+### Writes made while the app is in the background reach the server only when it returns
+React Native stops every JS timer when the activity pauses
+(`JavaTimerManager.onHostPause`), and the Firebase JS SDK's network layer runs on
+timers. So does `fetch`, which resolves through `setTimeout` (whatwg-fetch), so a
+REST call is no way round it. Native-module events still arrive: a
+foreground-service audio player keeps ticking, your code keeps calling `setDoc`,
+and nothing leaves the device until the app comes forward. Swipe it away first and
+the writes are gone with the memory cache. The symptom is listening done on the
+lock screen reverting to where the screen went off.
+
+Fix it with the outbox above, per document:
+- `AsyncStorage.setItem(prefix + docId, json)` on every save. One key per
+  document is a single native call, with no read-modify-write left half done.
+- Forget the record on the server's ack, but only if it is no newer than what
+  was acked. Forget it on `permission-denied` too: the access has gone, and the
+  record would be replayed on every launch for the life of the install.
+- Replay the records on launch, for the signed-in uid.
+- Merge the record into the session when the same item is reopened.
+
+**Coalesce the queue as well**: one write in flight, and at most one waiting per
+document, replaced only by a newer save. A chained queue holds a write per
+throttle interval for the whole background session, and all of them fire the
+moment the app returns (480 reads and 480 writes for two hours at 15 s).
+
+Verify with the server, not the UI. Play, press Home, and poll the document over
+REST: it must stay frozen, which proves the stall. Reopening flushes it within a
+second. Then force-stop instead of reopening, relaunch, and check that the place
+survived.
 
 ## Cloud Storage and long media
 
@@ -1088,10 +1157,35 @@ Two independent rules that both bite only in production:
   and re-mint it before expiry. Note an expired GCS signed URL returns **HTTP 400
   `ExpiredToken`, not 403** — a retry handler keyed on 403 will sail right past it.
 
+### Background audio plays through a phone call, or the lock screen has no title (expo-audio)
+Three setup details, each of which fails quietly:
+- **`interruptionMode: 'doNotMix'`** in `setAudioModeAsync`. The default,
+  `mixWithOthers`, requests no audio focus: a long recording plays over other
+  audio and through a call, and has no claim on the transport controls.
+- **Pass the metadata in `setActiveForLockScreen(true, { title, artist })`.**
+  `updateLockScreenMetadata` is a no-op until the player is active, and
+  activation usually sits behind an awaited `setAudioModeAsync` that races your
+  `load`. `dumpsys media_session` then shows `metadata: null`, and the controls
+  sit over a blank title.
+- **The media controls do not need `POST_NOTIFICATIONS`.** A MediaStyle
+  notification bound to a media session is exempt (verified on API 35 with the
+  permission denied). Asking for it on Play puts a system dialog in front of
+  someone who has just pressed Play.
+
+**An AVD can verify all of this without anyone listening:**
+- `adb shell dumpsys media_session`: state, position, speed and metadata for
+  your package.
+- `adb shell dumpsys audio | grep AudioPlaybackConfiguration`: your uid at
+  `state:started usage=USAGE_MEDIA`.
+- `adb shell dumpsys activity services <package>`: `isForeground=true`.
+
+The emulator ships with the lock screen disabled. Run
+`adb shell locksettings set-disabled false`, then press power twice to reach the
+real lock-screen controls; tap them and re-read the media session.
+
 ### Background audio: there must be AT MOST ONE player, and stop it before removing
 Once you enable background playback (`setAudioModeAsync({ shouldPlayInBackground:
-true })` + the foreground-service permissions + POST_NOTIFICATIONS for lock-screen
-controls), the audio player is kept alive by a foreground service — and two
+true })` + the foreground-service permissions), the audio player is kept alive by a foreground service — and two
 things that are harmless in the foreground become orphaned-audio bugs:
 - **`player.remove()` does NOT stop a playing background player.** Removing the
   object releases your handle, but a foreground-service player keeps producing
@@ -1107,11 +1201,11 @@ things that are harmless in the foreground become orphaned-audio bugs:
   down first, so at most one stream can ever exist. That guard is also the safety
   net for the missed-cleanup case the per-screen `useEffect` return can't cover.
 
-Emulators can't prove this — audio focus is held at the module level regardless,
-and a signed URL that points at `127.0.0.1` won't even stream to an AVD. Verify
-the *lifecycle* instead: temporary `console.log`s in create/unload, driven via
-adb and read from logcat, show teardown-then-recreate without a second live
-player; the audible behaviour is a real-device check.
+Verify on an AVD with the `dumpsys` checks above. Exactly one media session and
+one started player should belong to your uid after every navigation. A signed URL
+from a local emulator names `127.0.0.1`, which on the AVD is the AVD itself. The
+host is part of the signature, so forward the port instead of rewriting the URL:
+`adb reverse tcp:<port> tcp:<port>`.
 
 ## Expo / Metro / builds
 
