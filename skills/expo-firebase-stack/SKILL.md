@@ -813,6 +813,18 @@ REST: it must stay frozen, which proves the stall. Reopening flushes it within a
 second. Then force-stop instead of reopening, relaunch, and check that the place
 survived.
 
+### White page on the web after a schema change, with the server data correct
+With `persistentLocalCache`, a listener's first snapshot comes from IndexedDB:
+a browser that cached documents before you added a field draws those for the
+moment before the server's copy arrives. A render that assumes the field
+(`Object.values(doc.media)`) throws, and with no error boundary React unmounts
+everything — the server snapshot that follows never draws. Read documents
+through a function that defaults fields added later, never the type alone;
+wrap each screen in an error boundary (React Navigation 7: the navigator's
+`screenLayout`) and report from `componentDidCatch`, since a caught error never
+reaches the global handler. Reproduce by planting a document in the old shape
+in the emulator.
+
 ## Cloud Storage and long media
 
 Uploading files, streaming long audio/video, and reading media metadata each
