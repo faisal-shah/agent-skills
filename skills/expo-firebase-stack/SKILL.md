@@ -560,6 +560,22 @@ For a few minutes afterwards a call with a valid ID token gets an HTML 401, "The
 access token could not be verified", from Cloud Run's front end. That is
 propagation, not your token: wait.
 
+### A task-queue function's deploy fails with "Unable to set the invoker"
+firebase-tools 15.22.4 reads `existing.bindings.filter` from the queue's IAM
+policy, and a new queue's policy has no `bindings` field; the real error,
+"Cannot read properties of undefined (reading 'filter')", shows only under
+`--debug`, and the message blames IAM roles or network policy. The CLI
+replaces only the enqueuer role on the queue, so any other binding keeps the
+field present for good:
+`gcloud tasks queues add-iam-policy-binding <queue> --location=<region> --member=serviceAccount:<runtime SA> --role=roles/cloudtasks.viewer`.
+
+Check the function's own invoker after its first deploy as well: one came up
+with `allUsers`, callable by anyone. Set `invoker: 'private'` in
+`onTaskDispatched` and confirm with
+`gcloud run services get-iam-policy <service>`; the queue's calls carry the
+runtime account's token, which needs `run.invoker`, and enqueuing needs
+`roles/cloudtasks.enqueuer` plus `iam.serviceAccountUser` on itself.
+
 ### First deploy of a Firestore-trigger function: Eventarc permission denied
 `Validation failed ... Permission denied while using the Eventarc Service Agent`
 on the *first* trigger deploy in a project. The deploy enables Eventarc, but the
@@ -1156,6 +1172,33 @@ Two independent rules that both bite only in production:
   short-TTL **signed URL** from a callable that has already checked authorization,
   and re-mint it before expiry. Note an expired GCS signed URL returns **HTTP 400
   `ExpiredToken`, not 403** — a retry handler keyed on 403 will sail right past it.
+
+### One engine for audio and video: expo-video, and what it does differently
+expo-video plays an M4A with no picture, in the background, with lock-screen
+controls, so audio and video need not be two engines competing for one
+foreground service and one media session. Measured on an API 35 AVD against
+signed R2 URLs: a seek two hours fifty minutes into a file in 50 ms, a swap
+between a video and its audio at the same second in 165 ms, memory flat over
+ten minutes. Moving to it:
+- **A spurious `playToEnd` before the first source.** A player created with
+  no source reports the end of that nothing on its first load. Count ends only
+  once a source has loaded, or "the lecture ended" fires at the start.
+- **`replaceAsync` carries on playing if the player was playing.** Pause
+  before a swap that should not play; pass the flag through for the one that
+  should (a version switch).
+- **`audioMixingMode = 'doNotMix'` works on Android**, though documented as
+  iOS-only: it requests `AUDIOFOCUS_GAIN`. Without it the default mixes.
+- **Lock-screen title and artist travel in the source** (`{ uri, metadata }`),
+  so there is no activation call to race.
+- **Bare workflow: the manifest by hand.** The plugin's playback service
+  (`expo.modules.video.playbackService.ExpoVideoPlaybackService`,
+  `foregroundServiceType="mediaPlayback"`) and
+  `android:supportsPictureInPicture="true"` on the activity; keep the plugin
+  options in `app.json` so a future prebuild agrees.
+- **On the web, a `<video>` element resets `playbackRate` to 1 whenever `src`
+  changes.** Reapply the rate after every swap. The element plays audio-only
+  files too, and keeps playing when moved out of the document, so it can live
+  in the playback session and be borrowed into the page by the player screen.
 
 ### Background audio plays through a phone call, or the lock screen has no title (expo-audio)
 Three setup details, each of which fails quietly:
