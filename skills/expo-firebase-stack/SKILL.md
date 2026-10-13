@@ -863,6 +863,57 @@ resolves a local URI. If the picker returns a typeless blob, carry its declared
 mime type or the upload records `application/octet-stream`:
 `blob.slice(0, blob.size, mimeType)`.
 
+**That bridge holds the WHOLE file in memory**, which is fine for a 30 MB audio
+file and fatal for a multi-gigabyte video. For large files, never make a Blob
+of the whole thing:
+
+- pick with `copyToCacheDirectory: false` (expo-document-picker), or the picker
+  copies the file into the app's cache first — doubling it on the device;
+- read one slice at a time with expo-file-system's `File(uri).open()` →
+  `FileHandle` (`handle.offset = start; handle.readBytes(length)`), which also
+  opens `content://` URIs;
+- send each slice with `expo/fetch`, which takes a `Uint8Array` body natively
+  (type it `Uint8Array<ArrayBuffer>`; the DOM `BodyInit` rejects
+  `ArrayBufferLike`);
+- upload as S3 multipart with a pre-signed URL per part, so a dropped
+  connection costs one part, and keep two or three parts in flight at most —
+  each is a buffer in JS memory.
+
+The web side is `File.slice(start, end)`, which is a view, not a copy.
+Multipart write-once works differently from single-PUT write-once: the client
+only ever holds part URLs for one upload id, the server completes it, and a
+completed upload id refuses further parts — verify that last property against
+the real bucket, not only a local stand-in.
+
+### Probe uploaded media on the server, from ranged reads
+Checking that an uploaded file will actually play (an iPhone's HEVC video in a
+QuickTime container is the usual surprise) and reading its real length can
+both happen server-side without downloading it: `music-metadata`'s
+`parseFromTokenizer` over `@tokenizer/range`, with a two-method range client
+around the S3 SDK's ranged `GetObject`. An MP4 whose index sits at the END of
+a 200 MB file costs well under a megabyte of reads. Codecs it has no name for
+come back as the fourcc in angle brackets (`<avc1>`, `<hvc1>`, `<vp09>`), audio
+tracks marked as such.
+
+- **Do not pass the MIME type.** The parser picks its format from the hint
+  before looking at the bytes, so a WAV labelled `video/mp4` is read as a
+  broken MP4. The declared type is the uploader's claim; the bytes are the
+  question.
+- **Both packages are ESM-only.** A Cloud Functions codebase compiled to
+  CommonJS can still `require` them on Node 22.12+ (`require(esm)`), but
+  check it under the deployed runtime's major (`npx -y node@22 -e
+  "require('./lib/x.js')"`), because one failed top-level `require` takes down
+  every function in the bundle at cold start.
+- **A committed functions lockfile must gain them too**, or Cloud Build's
+  `npm ci` rejects the pair (see the Cloud Build entry below). Regenerate it
+  from the old lockfile plus the new `package.json`, so the other dependencies
+  keep the versions the tests ran against.
+- A file format with no length in its headers (raw ADTS `.aac`) needs a scan
+  of the whole file to get one; refusing it is simpler than scanning.
+
+The server-read length can then replace the one the client measured, which
+removes the per-platform duration seam below from the upload path.
+
 ### Reading media duration is itself a platform seam
 To show a duration / draw a scrubber you need the media's length. Web decodes it
 from an `<audio>`/`<video>` element plus `URL.createObjectURL(blob)`; **native
