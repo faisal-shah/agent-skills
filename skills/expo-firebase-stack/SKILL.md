@@ -838,6 +838,10 @@ failure mode you genuinely have — bytes in Storage, no database record — so 
 test is worth having for its own sake, and it fails fast instead of after the
 retry budget.
 
+### An upload still succeeds after you remove its `adb reverse`
+OkHttp keeps the pooled connection, so a PUT can reuse it. Restart the app and
+remove the rule before the transfer. Airplane mode never touches `adb reverse`.
+
 ### An upload SPANS the moment its database record starts existing
 The usual safe ordering is: a callable creates the record and returns an id, the
 client writes the object to Storage under that id, then a second callable
@@ -1301,6 +1305,45 @@ from a local emulator names `127.0.0.1`, which on the AVD is the AVD itself. The
 host is part of the signature, so forward the port instead of rewriting the URL:
 `adb reverse tcp:<port> tcp:<port>`.
 
+### Two players in one app play over each other
+Audio focus is arbitrated between APPS: expo-video holds one focus request for
+the whole app, so a second player (a clip on a detail screen while a lecture
+plays on in a docked bar) starts with the first still going, `doNotMix` or not.
+A browser plays two media elements together the same way. Keep the rule in the
+app: every player reports when it STARTS, and whatever started before it is
+paused.
+
+```ts
+export interface Sound { pause: () => void }   // one object per player
+let sounding: Sound | null = null;
+export function startedPlaying(s: Sound) {
+  const before = sounding;
+  sounding = s;
+  if (before && before !== s) before.pause();
+}
+export function releasedSound(s: Sound) { if (sounding === s) sounding = null; }
+```
+
+Report from the engine's event (`playingChange`, a media element's `play`), not
+your button: the lock screen, a headset and media keys start players too.
+Release on teardown, or the next start pauses a released shared object, which
+throws.
+
+### An audio clip's native controls show only play and full screen
+`nativeControls` on a short `VideoView` (a row-high clip) puts Media3's control
+view in its minimal mode: no time, no seek bar, no speed. Draw your own row (a
+button, a slider, the time, a speed toggle) over `useVideoPlayer` with no
+`VideoView`; the player plays without a surface.
+
+### A refreshed URL leaves an expo-video row saying "failed"
+`useVideoPlayer(source)` builds a NEW player when the source changes, and
+`useEvent(player, …)` keeps the old player's last value until the new one emits.
+Build the player once and `replaceAsync` later sources (the speed survives).
+Also: `status` reads `idle` after `playToEnd` and `loading` while rebuffering,
+so gate a slider on "has been `readyToPlay` once"; at the end `play()` does
+nothing until the position moves (seek to 0 first); the last `timeUpdate`
+lands short of the end.
+
 ## Expo / Metro / builds
 
 ### A UI change appears to have no effect
@@ -1472,6 +1515,24 @@ chunk request with the app's HTML (status 200, `text/html`) and lets the second
 through; assert the component appears and exactly one `load` event fired. The
 dev server fetches and evals instead of injecting a script, so the same
 interception rejects the same way there.
+
+### `Cannot read property 'reload' of undefined` in a native debug build
+A lazily loaded chunk (`React.lazy`, `import()`) after Metro's websocket has
+closed (the app sat in the background, Metro restarted): the dev HMR client
+answers a chunk load with `window.location.reload()` (`expo/src/async-require/hmr.ts`),
+which native lacks. Debug only — `export:embed` bundles with `splitChunks: false`
+and `lazy: false`. Splitting buys native nothing, so make the lazy wrapper the
+`.web.tsx` sibling and let the base file re-export the component directly.
+
+### The camera stops opening after a display-size or language change
+A change not in `android:configChanges` recreates the activity; JS survives,
+navigation restarts at the root, and expo-image-picker's `launchCameraAsync`
+rejects until the process restarts: `Attempting to launch an unregistered
+ActivityResultLauncher`. expo-document-picker is unaffected. Reproduce with
+`adb shell wm density <dpi>` while the app is open. Wrap the launch and tell
+the person to reopen the app. Adding `fontScale` to `configChanges` is not the
+way out (React Native 0.86): mounted text is redrawn at the new size without
+being measured again — clipped lines, a garbled tab bar until restart.
 
 ### Stale config baked into a bundle
 `EXPO_PUBLIC_*` is **inlined at build time**. Build with `--clear` when config
@@ -2875,6 +2936,14 @@ diagnostic. Same reasoning as sending the uid instead of the email — decide wh
 triage actually needs and send that, rather than forwarding whatever the library
 handed you.
 
+### A Java exception on the screen where a sentence should be
+A filter that shows any message containing a space lets native failures
+through: Expo module rejections (`Call to function '<Module.fn>' has been
+rejected. → Caused by: java.lang.…`) and `expo/fetch` network errors
+(`fetch failed: java.net.ConnectException: …`; a browser says `Failed to
+fetch`). Match the Expo preamble in the filter, and translate transport
+failures where they are thrown, passing an abort through unchanged.
+
 ### Send the uid, not the email
 It correlates with your users collection — all triage needs — without putting
 user addresses into a third-party service.
@@ -3573,6 +3642,11 @@ One more, once routing works: navigating to a screen that is **already mounted**
 updates its params rather than remounting it. Any screen that seeds state from a
 param (`useState(initialKey)`) will ignore the new one and leave the user on the
 previously targeted record. Sync the param into state with an effect.
+
+### A push to a force-stopped app never arrives
+`am force-stop` leaves the package in Android's stopped state, which receives no
+FCM: the send succeeds and nothing appears. To test a cold-start tap, background
+the app, `adb shell am kill <package>`, then send.
 
 ### Every push shows as "Miscellaneous", and the channel you configured sits unused
 
