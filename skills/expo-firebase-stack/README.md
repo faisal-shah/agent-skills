@@ -32,10 +32,13 @@ afternoon each the first time:
   composite indexes that are only enforced in production.
 - **Expo / Metro** — a UI change that appears to do nothing because the dev
   server went stale; a clean build red-screening with another repo's module
-  paths; `__DEV__` flipping to false in an export.
+  paths; `__DEV__` flipping to false in an export; a split web chunk that a
+  deploy strands in every tab already open.
 - **react-native-web** — controls that ignore your theme, the missing dropdown
   primitive, emoji glyphs that ignore text colour, layout that must branch on
   width rather than platform.
+- **Rich text** — a web bundle carrying both of Lexical's builds; a
+  react-native-enriched-html box born a line short.
 - **Observability** — test runs polluting the production error project;
   serverless events that never arrive; why not to run `@sentry/wizard` on a repo
   with committed native directories.

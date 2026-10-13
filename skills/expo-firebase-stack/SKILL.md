@@ -1435,6 +1435,44 @@ rebuild does not either — the packager is a separate process with its own stat
 Restart Metro with `--clear`. Worth suspecting **any** time a module resolution
 error names a file that demonstrably exists.
 
+### `import()` splits a web chunk — and every deploy strands the tabs already open
+
+A heavy component used on few screens (an editor, a chart) can leave the first
+load: `React.lazy(() => import('./Editor'))` makes `expo export --platform web`
+emit a separate `Editor-<hash>.js`, no router needed, and the main bundle sheds
+it. Measure from the exported bundle's source map rather than assuming.
+
+The trap is the next deploy. Hosting keeps only the new release's files, so a
+tab opened before it asks for a chunk hash that no longer exists — and an SPA
+rewrite (`"**" → /index.html`) answers with the app's HTML and a **200**. The
+production loader injects a `<script>`; HTML "loads", throws a parse error,
+never registers the module, and the `import()` rejects. To the user: the screen
+that needed the chunk is broken until they think to refresh.
+
+Reload once, and only once:
+
+```ts
+const Editor = lazy(() =>
+  import('./Editor').then(
+    (m) => ({ default: m.Editor }),
+    (e) => {
+      if (Platform.OS !== 'web') throw e;
+      const last = Number(sessionStorage.getItem('chunk-reloaded-at') ?? 0);
+      sessionStorage.setItem('chunk-reloaded-at', String(Date.now()));
+      if (Date.now() - last < 60_000) throw e;   // a second failure is a real fault
+      window.location.reload();
+      return new Promise<never>(() => {});
+    },
+  ),
+);
+```
+
+Prove it in the browser suite: `page.route(/Editor/, …)` fulfils the FIRST
+chunk request with the app's HTML (status 200, `text/html`) and lets the second
+through; assert the component appears and exactly one `load` event fired. The
+dev server fetches and evals instead of injecting a script, so the same
+interception rejects the same way there.
+
 ### Stale config baked into a bundle
 `EXPO_PUBLIC_*` is **inlined at build time**. Build with `--clear` when config
 changes. Corollary: `EXPO_PUBLIC_*` can never hold a secret — anyone with the app
@@ -2535,6 +2573,61 @@ The shapes that are right on a phone are wrong on a desktop, so make them
 You cannot reason your way to "it looks designed" — **open it at a real desktop
 width** (1400–1600 in Playwright) *and* at a phone width, and look. The 840px
 column that looks fine in a review is the tell.
+
+## Rich text (Lexical on web, react-native-enriched-html on native)
+
+### Your web bundle carries BOTH builds of Lexical
+
+The web bundle grows far more than Lexical's published size, and the source
+map lists `Lexical.dev.mjs` **and** `Lexical.prod.mjs` (and the same pair for
+every `@lexical/*` package).
+
+Lexical's default ESM entry statically imports both builds and picks one at run
+time by `NODE_ENV`; Metro does not tree-shake, so both ship. Measured: about
+990 KB of minified Lexical in the bundle, 460 KB once only the production build
+is resolved. Every Lexical package also publishes the two builds under the
+`development` and `production` export conditions, so ask for one — for Lexical
+only, since other packages give those conditions their own meanings:
+
+```js
+// metro.config.js
+const lexicalBuild = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+config.resolver.resolveRequest = (context, moduleName, platform) =>
+  context.resolveRequest(
+    /^(lexical|@lexical\/[^/]+)$/.test(moduleName)
+      ? { ...context, unstable_conditionNames: [...context.unstable_conditionNames, lexicalBuild] }
+      : context,
+    moduleName,
+    platform,
+  );
+```
+
+Check the source map's `sources` after an export: one `*.prod.mjs` per package,
+no `*.dev.mjs`.
+
+### react-native-enriched-html: put the value in `<html>…</html>`
+
+The editor opens with its last line cut off — the text is all there (a UI dump
+shows it), the box is simply a line short — and the first keystroke or a later
+layout pass sometimes fixes it, so it looks intermittent.
+
+The library treats a value as its own HTML only inside `<html>…</html>`. A bare
+`<p>…</p><ul>…</ul>` is still shown correctly, through its HTML normaliser, but
+the FIRST height measurement (`MeasurementStore.getInitialText`) skips the
+normaliser and measures the tags as plain text — one long paragraph, no list
+indents, none of the extra height of lines in fallback fonts. The library
+measures again once the view has parsed the value, but on first mount that
+correction does not reach layout. Measured from cold starts on an emulator: one
+line short every time (495 px for 542 px of text); enveloped, it fit every time.
+
+```tsx
+<EnrichedTextInput defaultValue={`<html>${html}</html>`} … />
+```
+
+Your HTML must then be in the library's own vocabulary (`p`, `br`, `b`, `i`,
+`a`, `ul`, `ol`, `li` and its other tags), since it now goes to the strict
+parser. Reproduce from a COLD start — force-stop and relaunch — before calling a
+fix verified: a warm re-open can show the right height with the bug intact.
 
 ## Observability
 
