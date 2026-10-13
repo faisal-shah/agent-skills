@@ -2584,17 +2584,20 @@ every `@lexical/*` package).
 
 Lexical's default ESM entry statically imports both builds and picks one at run
 time by `NODE_ENV`; Metro does not tree-shake, so both ship. Measured: about
-990 KB of minified Lexical in the bundle, 460 KB once only the production build
+990 KB of minified Lexical in the bundle, 445 KB once only the production build
 is resolved. Every Lexical package also publishes the two builds under the
 `development` and `production` export conditions, so ask for one — for Lexical
-only, since other packages give those conditions their own meanings:
+only, since other packages give those conditions their own meanings — and
+include SUBPATHS: `@lexical/react` is imported as `@lexical/react/LexicalComposer`
+and friends, and a pattern that stops at the package name leaves every one of
+them on its development build:
 
 ```js
 // metro.config.js
 const lexicalBuild = process.env.NODE_ENV === 'production' ? 'production' : 'development';
 config.resolver.resolveRequest = (context, moduleName, platform) =>
   context.resolveRequest(
-    /^(lexical|@lexical\/[^/]+)$/.test(moduleName)
+    /^(lexical|@lexical\/[^/]+)(\/.*)?$/.test(moduleName)
       ? { ...context, unstable_conditionNames: [...context.unstable_conditionNames, lexicalBuild] }
       : context,
     moduleName,
@@ -2602,8 +2605,8 @@ config.resolver.resolveRequest = (context, moduleName, platform) =>
   );
 ```
 
-Check the source map's `sources` after an export: one `*.prod.mjs` per package,
-no `*.dev.mjs`.
+Check the source map's `sources` after an export, every chunk of it: one
+`*.prod.mjs` per module, and no `*.dev.mjs` anywhere.
 
 ### react-native-enriched-html: put the value in `<html>…</html>`
 
