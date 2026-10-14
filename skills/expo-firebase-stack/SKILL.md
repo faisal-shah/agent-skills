@@ -373,6 +373,32 @@ adb shell pm clear <package>
 Any script that resets emulators should do this in the same breath, rather than
 leaving it to be rediscovered at the next confusing screen.
 
+### A user deleted mid-session stays signed in on the emulator
+
+Delete an account while someone is signed in with it (an auth-create trigger
+rejecting a sign-up a moment after it lands, an admin removing a user) and
+production and the emulator part ways at the next token refresh:
+
+| | Refreshing a deleted user's token | The JS SDK reports | SDK signs out? |
+|---|---|---|---|
+| Production | `400 USER_NOT_FOUND` | `auth/user-token-expired` | yes |
+| Auth emulator | `INVALID_REFRESH_TOKEN` | `auth/invalid-refresh-token` | **no** |
+
+The SDK signs a user out on a failed refresh only for `auth/user-disabled` and
+`auth/user-token-expired` (`_logoutIfInvalidated`). On the emulator the session
+therefore stays signed in with a refresh token that will never work again: a
+"setting up your account" screen waits for good where production drops the
+person back at sign-in. Anything hung on that sign-out, such as telling the
+person why they were turned away, **cannot be tested end to end on the
+emulator**. A test written for it there either hangs or passes for the wrong
+reason.
+
+Check production with a throwaway account instead. Create it password-less
+through the admin API (a trigger that rejects client sign-ups leaves that shape
+alone), set a password, and sign in over REST for a refresh token. Delete the
+account, then refresh: production answers `400 USER_NOT_FOUND`. Delete the
+account in a `finally`.
+
 ### Writes succeed, triggers log success, client says the doc does not exist
 The listener even reports a *server* snapshot (`fromCache=false`).
 
