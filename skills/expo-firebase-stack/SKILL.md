@@ -2357,6 +2357,16 @@ submit button beneath it. On an emulator that button can stay behind the
 keyboard even with a generous offset. Emulator IME inset behaviour diverges from
 real hardware — confirm on a device before concluding either way.
 
+**A `Modal` needs the same treatment, separately.** A dialog is a window of its
+own, and the keyboard overlays it just the same: a centred panel goes on
+centring on the whole screen, so the last button of a tall dialog — its Cancel —
+sits under the keys, and the page's `KeyboardAwareScrollView` does not reach
+it. Wrap the modal's content in the library's
+`<KeyboardAvoidingView behavior="padding">` (it watches `Modal`s for the IME on
+Android), so the panel centres in the room above the keyboard; cap the panel's
+height so its body scrolls. Behind the same web seam — a browser resizes the
+page for its own keyboard.
+
 ### There is no dropdown primitive in React Native
 Use a platform seam: `<select>` on web (keyboard nav, type-ahead and scrolling
 for free), a height-bounded modal list on native. Rendering one button per option
