@@ -46,7 +46,7 @@ ANDROID_NDK="27.1.12297006"
 ANDROID_CMAKE="3.22.1"
 ANDROID_IMAGE_API="35"
 FIREBASE_TOOLS="firebase-tools@^15"
-AVD_NAME="tb_emu"
+AVD_NAME="dev_emu"
 
 SKIP_ANDROID=false
 SKIP_AVD=false
@@ -275,9 +275,13 @@ install_small_tools() {
   say "jq, lsof, pip, python-markdown, Pillow"
 
   if ! [ -x "$BINDIR/jq" ] && ! command -v jq >/dev/null; then
-    curl -sSL -o "$BINDIR/jq" \
+    if curl -sSL -o "$BINDIR/jq" \
       "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64" \
-      && chmod +x "$BINDIR/jq" && info "jq installed" || warn "jq install failed"
+      && chmod +x "$BINDIR/jq"; then
+      info "jq installed"
+    else
+      warn "jq install failed"
+    fi
   else
     info "jq present"
   fi
@@ -288,25 +292,34 @@ install_small_tools() {
   # the port clear. A missing tool that turns a check into a no-op is worse
   # than a missing check.
   if ! command -v lsof >/dev/null && command -v dpkg-deb >/dev/null; then
-    ( cd "$WORK" && apt-get download lsof >/dev/null 2>&1 \
+    if ( cd "$WORK" && apt-get download lsof >/dev/null 2>&1 \
       && dpkg-deb -x lsof_*.deb "$SYSLIBS" \
-      && ln -sf "$SYSLIBS/usr/bin/lsof" "$BINDIR/lsof" ) \
-      && info "lsof installed" || warn "lsof install failed — port guards will be no-ops"
+      && ln -sf "$SYSLIBS/usr/bin/lsof" "$BINDIR/lsof" ); then
+      info "lsof installed"
+    else
+      warn "lsof install failed — port guards will be no-ops"
+    fi
   else
     info "lsof present"
   fi
 
   if ! python3 -m pip --version >/dev/null 2>&1; then
-    curl -sSL -o "$WORK/get-pip.py" https://bootstrap.pypa.io/get-pip.py \
-      && python3 "$WORK/get-pip.py" --user --break-system-packages -q >/dev/null 2>&1 \
-      && info "pip installed" || warn "pip install failed"
+    if curl -sSL -o "$WORK/get-pip.py" https://bootstrap.pypa.io/get-pip.py \
+      && python3 "$WORK/get-pip.py" --user --break-system-packages -q >/dev/null 2>&1; then
+      info "pip installed"
+    else
+      warn "pip install failed"
+    fi
   else
     info "pip present"
   fi
   # --break-system-packages is Debian 12+ (PEP 668). It only ever touches
   # ~/.local, so it cannot damage the system interpreter.
-  python3 -m pip install --user --break-system-packages -q markdown Pillow >/dev/null 2>&1 \
-    && info "markdown + Pillow installed" || warn "markdown/Pillow install failed"
+  if python3 -m pip install --user --break-system-packages -q markdown Pillow >/dev/null 2>&1; then
+    info "markdown + Pillow installed"
+  else
+    warn "markdown/Pillow install failed"
+  fi
 }
 
 # ------------------------------------------------- staged system libraries --
@@ -317,14 +330,14 @@ stage_syslibs() {
 
   # Ask Playwright for its own list where possible, so this does not drift as
   # Playwright versions change. The static list is the fallback.
-  local pkgs=""
+  local libs=""
   if command -v npx >/dev/null; then
-    pkgs=$(npx --yes playwright install-deps --dry-run chromium 2>/dev/null \
+    libs=$(npx --yes playwright install-deps --dry-run chromium 2>/dev/null \
            | sed -n '2,200p' | sed 's/^ *//' | grep -v '^$' | tr '\n' ' ')
   fi
-  if [ -z "${pkgs// /}" ]; then
+  if [ -z "${libs// /}" ]; then
     info "using the built-in library list"
-    pkgs="libx11-xcb1 libdrm2 libice6 libsm6 libnspr4 libnss3 libpulse0 libxi6
+    libs="libx11-xcb1 libdrm2 libice6 libsm6 libnspr4 libnss3 libpulse0 libxi6
       libxkbfile1 libtcmalloc-minimal4 libpcre2-16-0 libjpeg62-turbo
       libfontconfig1 libatk1.0-0t64 libatk-bridge2.0-0t64 libatspi2.0-0t64
       libcups2t64 libgbm1 libpango-1.0-0 libcairo2 libasound2t64 libxcomposite1
@@ -337,15 +350,20 @@ stage_syslibs() {
       libgl1-mesa-dri libglx-mesa0 mesa-libgallium"
   fi
 
+  # One package name per word: split into an array rather than relying on
+  # unquoted expansion.
+  local lib_list
+  read -r -a lib_list <<< "$(printf '%s' "$libs" | tr '\n' ' ')"
   mkdir -p "$WORK/debs" "$SYSLIBS"
   ( cd "$WORK/debs" \
-    && apt-get install --print-uris -y --no-install-recommends $pkgs 2>/dev/null \
+    && apt-get install --print-uris -y --no-install-recommends "${lib_list[@]}" 2>/dev/null \
        | grep "^'" | sed "s/^'\([^']*\)'.*/\1/" > uris.txt \
     && [ -s uris.txt ] \
     && xargs -P 8 -n 1 curl -sSL -O < uris.txt \
     && for d in *.deb; do dpkg-deb -x "$d" "$SYSLIBS"; done ) \
     || { warn "system-library staging failed; Chromium may not start"; return 0; }
-  info "staged $(ls "$WORK/debs"/*.deb 2>/dev/null | wc -l) packages into $SYSLIBS"
+  local staged=("$WORK/debs"/*.deb)
+  info "staged ${#staged[@]} packages into $SYSLIBS"
 
   if [ -d "$SYSLIBS/usr/share/fonts" ]; then
     mkdir -p "$HOME/.config/fontconfig"
@@ -431,7 +449,8 @@ unset -f _efs_path
 export PATH
 ENVEOF
 
-  local hook="[ -f \"\$HOME/$(basename "$ENV_FILE")\" ] && . \"\$HOME/$(basename "$ENV_FILE")\""
+  local hook
+  hook="[ -f \"\$HOME/$(basename "$ENV_FILE")\" ] && . \"\$HOME/$(basename "$ENV_FILE")\""
   local f
   for f in "$HOME/.profile" "$HOME/.bashrc"; do
     [ -f "$f" ] || touch "$f"
@@ -465,9 +484,11 @@ install_browsers() {
     info "Playwright browsers already present"
   fi
 
-  local chrome
-  chrome=$(ls -d "$HOME/.cache/ms-playwright"/chromium-*/chrome-linux64/chrome 2>/dev/null | head -1)
-  [ -z "$chrome" ] && chrome=$(ls -d "$HOME/.cache/ms-playwright"/chromium-*/chrome-linux/chrome 2>/dev/null | head -1)
+  local chrome="" candidate
+  for candidate in "$HOME/.cache/ms-playwright"/chromium-*/chrome-linux64/chrome \
+                   "$HOME/.cache/ms-playwright"/chromium-*/chrome-linux/chrome; do
+    if [ -x "$candidate" ]; then chrome="$candidate"; break; fi
+  done
   if [ -n "$chrome" ]; then
     # Some tooling (headless PDF printing in particular) shells out to a bare
     # `google-chrome`. This covers that without root. Anything that hardcodes
@@ -525,6 +546,9 @@ self_test() {
   check node        'node -v'
   check npm         'npm -v'
   check "java (17)" 'java -version 2>&1 | head -1'
+  # Single-quoted on purpose here and below: `check` runs the string in a login
+  # shell, which is where the variables are set.
+  # shellcheck disable=SC2016
   check "java (21)" '"$JDK21_HOME/bin/java" -version 2>&1 | head -1'
   check firebase    'firebase --version'
   check gcloud      'gcloud --version 2>/dev/null | head -1'
@@ -534,6 +558,7 @@ self_test() {
   check markdown    'python3 -c "import markdown;print(markdown.__version__)"'
   if [ "$SKIP_ANDROID" = false ]; then
     check adb       'adb --version | sed -n 2p'
+    # shellcheck disable=SC2016
     check ndk       'ls "$ANDROID_HOME/ndk"'
     check avd       'emulator -list-avds | tr "\n" " "'
   fi
