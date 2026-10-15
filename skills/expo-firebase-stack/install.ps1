@@ -90,7 +90,7 @@ foreach ($TargetRoot in $TargetRoots) {
         $ToolsDir = Join-Path $Target "tools"
         New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null
         Copy-Item (Join-Path $ScriptRoot "SKILL.md") -Destination $Target -Force
-        Copy-Item (Join-Path (Join-Path $ScriptRoot "tools") "*.sh") -Destination $ToolsDir -Force
+        Get-ChildItem (Join-Path $ScriptRoot "tools") -File | Copy-Item -Destination $ToolsDir -Force
         Write-Host "Installed $SkillName to $Target"
     }
 }

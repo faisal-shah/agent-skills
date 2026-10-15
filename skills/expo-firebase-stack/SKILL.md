@@ -1,6 +1,6 @@
 ---
 name: expo-firebase-stack
-description: Diagnose and avoid the recurring traps in Expo + react-native-web + Firebase JS SDK apps — Google sign-in failing only inside chat-app browsers, DEVELOPER_ERROR on Android, emulator data that "does not exist", stale Metro bundles, config plugins that silently do nothing in the bare workflow, module-resolution errors naming files that exist, native debug builds serving stale JS or an unset EXPO_PUBLIC flag, screenshotting a stale installed build, unauthenticated screenshots that verify nothing, unthemeable react-native-web controls, push notifications that deliver nothing while every visible part works, an Android permission prompt raised at the worst possible moment because nothing refuses it, a permission screen that goes stale the moment the person leaves to fix the setting it named, live-query races that make seeds and tests silently do nothing, and nightly "backups" that are really mirrors and protect against nothing. Use when building, debugging, deploying, or verifying an Expo app that shares one codebase across Android and web via react-native-web with Firebase for auth/Firestore/Functions.
+description: Diagnose and avoid the recurring traps in Expo + react-native-web + Firebase JS SDK apps — Google sign-in failing only inside chat-app browsers, DEVELOPER_ERROR on Android, emulator data that "does not exist", stale Metro bundles, config plugins that silently do nothing in the bare workflow, module-resolution errors naming files that exist, native debug builds serving stale JS or an unset EXPO_PUBLIC flag, screenshotting a stale installed build, unauthenticated screenshots that verify nothing, unthemeable react-native-web controls, push notifications that deliver nothing while every visible part works, an Android permission prompt raised at the worst possible moment because nothing refuses it, a permission screen that goes stale the moment the person leaves to fix the setting it named, live-query races that make seeds and tests silently do nothing, nightly "backups" that are really mirrors and protect against nothing, and device checks handed to a person that the emulator can run (a throttled network, the lock screen, a killed app). Use when building, debugging, deploying, or verifying an Expo app that shares one codebase across Android and web via react-native-web with Firebase for auth/Firestore/Functions.
 ---
 
 # Expo + react-native-web + Firebase: the traps
@@ -2683,6 +2683,13 @@ You cannot reason your way to "it looks designed" — **open it at a real deskto
 width** (1400–1600 in Playwright) *and* at a phone width, and look. The 840px
 column that looks fine in a review is the tell.
 
+### A spinner sized to ring a button lands ON the button (Android)
+`ActivityIndicator` given a numeric `size` draws its arc well inside its bounds
+on Android, so sized a few pixels larger than a round button it sits on the
+button's rim. react-native-web draws the circle at the bounds, so the browser
+looks right. Draw the ring yourself: a bordered circle with one side in the
+accent, rotated on the native driver (a web animation on the web).
+
 ## Rich text (Lexical on web, react-native-enriched-html on native)
 
 ### Your web bundle carries BOTH builds of Lexical
@@ -4801,6 +4808,66 @@ hand-written `'2026-07-15'` day key is unverifiable by eye — and was a year of
 Derive fixtures (`Date.UTC(2026, 6, 15, 9)`) so they cannot drift from the labels
 they carry.
 
+## Device tests without a device
+
+Almost every "test it on a phone" step runs on the emulator, at conditions a
+person cannot easily produce. Reach for these before asking anyone.
+
+### The emulator's network-speed setting is accepted, and ignored
+`adb emu network speed 1600:1600` (or `-netspeed` at boot) is reported back by
+`network status`, and a timed download runs at full speed anyway, on Wi-Fi or
+mobile data. Throttle on the host instead: a CONNECT proxy sharing one slow
+link (`tools/slow-proxy.mjs`), and the emulator's system proxy pointed at it.
+Android's HTTP stacks (OkHttp, HttpURLConnection — so ExoPlayer, React
+Native's fetch, Firebase) honour it.
+
+```
+node tools/slow-proxy.mjs <port> 1600 800                    # kbit/s down, up
+adb shell settings put global http_proxy 10.0.2.2:<port>
+adb shell settings put global http_proxy :0                  # undo
+```
+
+Time a download before trusting any limit. The image has no curl; from the
+host, time `adb shell "printf 'GET /f HTTP/1.0\r\n\r\n' | toybox nc -q 90
+10.0.2.2 <port> | toybox wc -c"`. Through `adb reverse` it is never throttled.
+
+### `uiautomator dump` returns the previous screen while anything animates
+It fails with `could not get idle state` while a spinner turns or media plays,
+and leaves the last dump in place, which `cat` prints as if current. Delete the
+dump first and check for a fresh one (`tools/avd-ui.py` does, and taps or types
+by `testID`, which React Native exposes as `resource-id`). Read an animating
+screen from `adb exec-out screencap -p`: crop it, sample pixels.
+
+### Lock screen, background playback and process death, from adb
+```
+adb shell input keyevent KEYCODE_SLEEP            # screen off; it should play on
+adb shell cmd media_session dispatch pause        # the lock-screen buttons
+adb shell dumpsys media_session                   # state, position, title
+adb shell input keyevent KEYCODE_WAKEUP && adb shell wm dismiss-keyguard
+adb shell am force-stop <applicationId>           # killed mid-play
+```
+Position moving across a screen-off minute is the proof that it played.
+**Swiping the app out of recents does not kill it** while a foreground media
+service runs — the session carries on — so test "killed" with `force-stop`, and
+check what was saved and what the next launch sends.
+
+### Offline, a hurried hand, a second device, a stalled JS thread
+- `adb shell cmd connectivity airplane-mode enable` (and `disable`).
+- A double tap: `adb shell "input tap X Y & sleep 0.15; input tap X Y; wait"`.
+- A second device: a Playwright browser context signed in as the same account,
+  beside the emulator.
+- A JS-thread stall: tap a control with a pressed style and sample its pixel
+  every 300 ms. The pressed tint should clear in about that time; if it lingers,
+  JavaScript did not see the release.
+
+### In the browser: a slow file, another time of day, an animation's cost
+- Hold a file back: `page.route(re, r => setTimeout(() => r.continue(), 6000))`.
+- Another clock: `context.clock.install({ time })` before the page loads, for
+  anything that turns over at midnight.
+- What an animation costs the main thread: CDP `Performance.getMetrics`,
+  `RecalcStyleCount` over a few seconds — about 60 a second when JavaScript
+  moves it, near zero when the compositor does.
+
 ## Rules protect clients — not your own backend
 
 Security rules apply to client SDKs. The Admin SDK **bypasses them entirely**, so
@@ -5027,6 +5094,17 @@ sends the person out of the app to act on it, and cannot see that they did. Ever
 individual piece is right and the feature is unusable, and no assertion about the
 screen catches it, because at the moment the assertion runs the screen is telling
 the truth.
+
+### "This needs a real device" is usually false
+A device checklist was handed to a person, who could not produce a slow
+connection at home. On the emulator every step ran but one, at a speed no
+home network gives, and the run found a bug the person could not have
+provoked. **Before asking anyone to test on hardware, write each step down
+with how the emulator, a browser or the host reproduces it** — network speed,
+lock screen, process death, offline, a second device, the clock ("Device tests
+without a device"). Ask a person only for what has no stand-in: a real
+network's behaviour, physical sensors, a manufacturer's own Android, how it
+feels. And tell them which steps already ran.
 
 ### The APK at the output path may be the PREVIOUS build
 `assembleRelease` writes to a fixed path, and the file from last night's build is

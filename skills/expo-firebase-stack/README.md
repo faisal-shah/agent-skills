@@ -18,6 +18,8 @@ Firestore and Cloud Functions.
 | install.ps1| yes | Installs the skill (PowerShell) |
 | tools/bootstrap-linux.sh | yes | Installs the whole toolchain on a fresh Debian/Ubuntu box, under `$HOME`, no root |
 | tools/check-host.sh | yes | Reports whether a host can run the Android emulator accelerated, and what is missing |
+| tools/slow-proxy.mjs | no | A slow phone connection for the Android emulator, which ignores its own speed setting |
+| tools/avd-ui.py | no | Reads the emulator's screen and taps or types by `testID`, refusing a stale dump |
 
 ## What it covers
 

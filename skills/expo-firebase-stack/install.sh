@@ -33,8 +33,8 @@ install_to() {
 
     mkdir -p "$target/tools"
     cp "$SCRIPT_DIR/SKILL.md" "$target/"
-    cp "$SCRIPT_DIR/tools/"*.sh "$target/tools/"
-    chmod +x "$target/tools/"*.sh
+    find "$SCRIPT_DIR/tools" -maxdepth 1 -type f -exec cp {} "$target/tools/" \;
+    chmod +x "$target/tools/"*
     echo "Installed $SKILL_NAME to $target"
 }
 
