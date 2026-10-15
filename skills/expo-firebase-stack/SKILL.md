@@ -1858,9 +1858,13 @@ password into shell history:
 security unlock-keychain ~/Library/Keychains/login.keychain-db
 ```
 
-The unlock is shared by every process of that user, so another terminal will do,
-and it is **runtime state**: it dies with a reboot, and a build box nobody logs
-into at the console starts locked every single time.
+**The unlock belongs to the login session that ran it, not to the user.** Over
+ssh every login is its own security session: unlocking in one ssh login (one
+tty) leaves a build started from a second ssh login (another tty, or an agent's
+own shell) failing with the same `errSecInternalComponent`. Unlock in the same
+session that runs the build. And it is **runtime state**: it dies with a reboot,
+and a build box nobody logs into at the console starts locked every single
+time.
 
 **Gate it, because signing anything proves it in about a second** — a throwaway
 binary exercises the same mechanism as a framework, and turns a twenty-minute
@@ -3181,6 +3185,45 @@ plausible string, and the mismatch surfaces only as silence.
 
 Pick one delivery path and make the client and server agree on it.
 
+### On iOS, the "device token" is Apple's, and FCM cannot send to it
+On Android, `getDevicePushTokenAsync()` returns an FCM registration token. On
+iOS it returns the raw **APNs** device token (hex), because nothing on the
+phone registered with FCM: the Firebase **JS** SDK has no messaging on a
+native app, and expo-notifications talks to Apple directly. Store it as an FCM
+token and `getMessaging().send*` refuses it; the app's settings screen still
+says the device is registered, and iPhones simply never hear anything. Code
+that hard-codes the platform as `'android'` makes it invisible in the data too.
+
+Two ways out. FCM can be asked to exchange APNs tokens for its own, through
+an Instance ID batch-import endpoint from a retired generation of Google's
+APIs. Or the server sends to Apple itself, which is small: HTTP/2 to
+`api.push.apple.com` (or `api.sandbox.push.apple.com`), one `POST
+/3/device/<token>` per device, headers `apns-topic: <bundle id>`,
+`apns-push-type: alert`, and `authorization: bearer <JWT>`. The JWT is ES256
+(`{alg, kid: <key id>}`, `{iss: <team id>, iat}`) signed with the team's `.p8`
+key; node's built-in `http2` and `crypto` are enough. Traps on that path:
+
+- **Sign in JOSE's raw `r||s` form**: `crypto.sign(..., { dsaEncoding:
+  'ieee-p1363' })`. Node's default is DER, a valid ECDSA signature that Apple
+  answers with `InvalidProviderToken`.
+- **Reuse the JWT** for up to an hour (Apple refuses older) but do not mint
+  more often than every twenty minutes (`TooManyProviderTokenUpdates`). Mint
+  a fresh one when Apple answers `ExpiredProviderToken`/`InvalidProviderToken`.
+- **The token belongs to one of the two services.** A development build's
+  token works only on the sandbox; TestFlight and App Store builds' only on
+  production; each service answers the other's with `BadDeviceToken`. Have
+  the phone say which when it registers (expo-application's
+  `getIosPushNotificationServiceEnvironmentAsync()` reads the embedded
+  provisioning profile) and store it beside the token.
+- **Prune only on answers about the token**: 410, and 400 `BadDeviceToken` or
+  `DeviceTokenNotForTopic`. Other 400s (`BadPayload`, `BadTopic`, …) are about
+  the message and come back for every device at once.
+- **Prove the key without a device:** send to a token that cannot exist
+  (64 hex characters). Apple checks the provider token first, so
+  `BadDeviceToken` means the key, key id, team id and topic were all
+  accepted. An Apple-silicon simulator also receives real sandbox pushes from
+  a debug build.
+
 ### Bare workflow: `googleServicesFile` in `app.json` does nothing
 `app.json` android config is consumed by **prebuild**. With a committed
 `android/` directory nobody runs prebuild, so the setting is decoration. FCM then
@@ -3677,6 +3720,19 @@ is copied through as `content.data`. Both paths work; mixing them does not.
 
 Pick one and never name a data key `body`. The failure is silent: your other keys
 simply aren't there at runtime, on the device only.
+
+**iOS is the opposite way round**, for a remote notification sent to APNs
+directly: the iOS serializer (`serializedNotificationData` in
+`NotificationRecords.swift`) sets `content.data` to `userInfo["body"]` when it
+is a dictionary, and to nothing otherwise. Top-level custom keys beside `aps`
+reach the phone, show, and are invisible to the app's tap handler (they are
+only in `trigger.payload`). So the APNs payload carries its data as
+`{"aps": {...}, "body": {"path": "..."}}`, and the FCM message as flat
+`data` with no `body` key. Prove it on a simulator with `xcrun simctl push`
+and both shapes, app in the foreground: both show a banner, and only the
+nested one's tap opens anything. (A headless simulator's SpringBoard ignores
+synthetic taps on home-screen banners and Notification Center entries, so the
+background and cold-start taps need a device; they reach the same listener.)
 
 Also unavoidable on Android: the same tap can be reported **twice** on a cold
 start — once by `getLastNotificationResponseAsync()` (the tap that launched the
