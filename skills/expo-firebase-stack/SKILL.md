@@ -378,6 +378,27 @@ Two corollaries, both learned the expensive way:
   A, B, C" is repairable in seconds. Firebase's version of the message arrives
   later, from a different program, and names none of your configuration.
 
+### "This account is not for this app" for a genuine first sign-in
+
+A server trigger that provisions a new account (claims plus a profile
+document) usually finishes within a second, so an app waits a few seconds
+for the profile and then concludes the server refused the account. A cold
+start can take longer, and so can a loaded emulator: the app then tells a
+legitimate person they are not allowed in. Wait long enough for a cold start
+(tens of seconds) with a "setting up your account" screen, ask Auth directly
+(`accounts:lookup`) whether the account still exists, and refuse only when
+Auth says it is gone; otherwise say "still setting up" with Try again. Two
+traps on the way:
+
+- **`user.reload()` on a deleted account signs the person out**, which removes
+  the screen that was about to explain why. Ask `accounts:lookup` instead.
+- **On the emulators, the first Firestore listen can stay open and silent**:
+  the document exists, the listener never hears it, and reopening the client's
+  connection does not help; a page reload does at once. A web "Try again"
+  that reloads the page recovers it; a browser suite should answer the
+  "still setting up" state with the app's own Try again rather than a longer
+  wait.
+
 ### Wiping the emulators does NOT sign the app out
 
 You reset the emulators, re-seed, relaunch the app — and it sits on a "wrong
