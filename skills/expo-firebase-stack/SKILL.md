@@ -1951,6 +1951,66 @@ bash -c 'set -u; A=(); printf "%s" "${A[@]}"'          # bash: A[@]: unbound var
 bash -c 'set -u; A=(); printf "%s" ${A[@]+"${A[@]}"}'  # (nothing, exit 0)
 ```
 
+### iOS builds on GitHub's macOS runners: sign manually, or burn a certificate a run
+GitHub's standard runners, macOS included, are free and unlimited for a public
+repo, and Apple's whole setup is reachable from Linux through the App Store
+Connect API (an Admin key), so a rented Mac is optional once builds are
+routine. The trap is signing. **Automatic signing with
+`-allowProvisioningUpdates` on a fresh runner finds no identity and mints a
+new certificate every run**, throwing its private key away with the machine,
+until Apple's per-team certificate limit stops every build for the team.
+
+Make one Apple Distribution certificate and keep it: a key and signing
+request with `openssl`, `POST /v1/certificates` (`certificateType`
+`DISTRIBUTION`), `POST /v1/profiles` (`IOS_APP_STORE`) per app on that
+certificate, and the two packed with `openssl pkcs12 -export -legacy` (the
+legacy encryption is what every macOS keychain imports). On the runner, import
+it into a keychain of its own and install the profile. Then:
+
+- **Sign the app target alone manually.** `PROVISIONING_PROFILE_SPECIFIER` on
+  the xcodebuild command line reaches every pod target, and each fails with
+  "does not support provisioning profiles". Write `CODE_SIGN_STYLE=Manual`,
+  the identity and the profile into the regenerated project's app target
+  (the xcodeproj gem ships with CocoaPods), and export with a manual
+  `ExportOptions.plist` (`signingCertificate`, `provisioningProfiles`).
+- **The prebuilt entitlements may say `aps-environment` development.** With an
+  App Store profile Xcode signs with the profile's `production`; check the
+  exported app rather than the file.
+- **Assert on the exported `.ipa`, not the archive**: `codesign -d
+  --entitlements - --xml` (production push, `get-task-allow` false), the
+  embedded profile's name, and the commit label, which Hermes keeps as a
+  plain string in `main.jsbundle`.
+- **Build and upload as separate jobs.** A build needs no new build number;
+  an upload does, and Apple says so only after the upload. Ask first
+  (`GET /v1/builds?filter[app]=…&filter[preReleaseVersion.version]=…`), then
+  `xcrun altool --validate-app` and `--upload-package <ipa> --api-key …
+  --api-issuer …`. **altool ignores a flag it does not know**, so use the
+  spelling its own `--help` prints; a misspelt one never fails.
+- **A multi-line secret is masked line by line.** An env file stored as one
+  secret masks `NAME=value` lines, never a value printed by itself: emit
+  `::add-mask::` for each value. And store `NAME=value` lines only: a comment
+  line of `#` becomes a mask, and every `#` in the log turns into `***`.
+
+### Two builds of one commit ship different pods
+`expo prebuild` regenerates `ios/`, which is gitignored, so no `Podfile.lock`
+is committed and every clean checkout resolves the third-party pods afresh
+within their podspec ranges. A Mac that kept an old `ios/` and a runner that
+starts clean then build the same commit with different native libraries
+(seen: two Google pods a patch apart). The Mac had also gone further: its
+local CocoaPods specs index was stale and knew no newer version at all.
+
+Commit the lock outside `ios/`, copy it in after prebuild, install with
+`pod install --repo-update` (a stale index cannot find the pinned versions
+otherwise), and stop the build if the `PODS:` section changed. Compare
+`PODS:` only: the `SPEC CHECKSUMS` of locally generated podspecs
+(ExpoModulesCore, hermes-engine) differ per machine with the same versions.
+
+Two builds of one commit still differ in bytes: the signature, Xcode's
+per-build UUIDs, and the commit label, which also moves a few bytes of the
+Hermes bundle elsewhere (its string table is laid out by content). To prove
+the inputs equal, compare the two builds' JavaScript source maps:
+`sourcesContent` file by file.
+
 ### `expo run:ios` exits 1 on a build that actually worked
 
 The app compiles, signs and installs on the simulator — and the command still
