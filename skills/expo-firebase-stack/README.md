@@ -20,6 +20,8 @@ Firestore and Cloud Functions.
 | tools/check-host.sh | yes | Reports whether a host can run the Android emulator accelerated, and what is missing |
 | tools/slow-proxy.mjs | no | A slow phone connection for the Android emulator, which ignores its own speed setting |
 | tools/avd-ui.py | no | Reads the emulator's screen and taps or types by `testID`, refusing a stale dump |
+| tools/sim-ui.py | no | The same for a booted iOS simulator, through idb's accessibility tree |
+| tools/sim-keyboard.m | no | Switches a headless iOS simulator's hardware keyboard off, so the software keyboard rises |
 
 ## What it covers
 

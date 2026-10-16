@@ -4924,6 +4924,42 @@ check what was saved and what the next launch sends.
   `RecalcStyleCount` over a few seconds — about 60 a second when JavaScript
   moves it, near zero when the compositor does.
 
+### On a headless iOS simulator (a Mac reached over ssh)
+Over ssh there is no GUI session, so Simulator.app cannot run and every
+simulator is headless. Most phone checks still run:
+
+| Check | How |
+|---|---|
+| The screen | `tools/sim-ui.py ids`, `tap <testID>`, `shot`: idb's accessibility tree, where React Native's `testID` is `AXUniqueId`. Taps are in points (screenshot pixels / 3) |
+| A slow load | `kill -STOP` the local media server, `kill -CONT` to release it |
+| Background audio | read the player's clock, `idb ui button HOME`, wait a minute, `simctl launch`: the clock moved by the wall time, same pid |
+| The lock | `idb ui button LOCK`, wait, unlock; the same clock test |
+| The app publishing Now Playing | `xcrun simctl spawn booted log show --last 5m --predicate 'eventMessage CONTAINS "nowPlayingItem"'` names the app |
+| Killed mid-play | `xcrun simctl terminate`, relaunch |
+| A push, its banner and a tap inside the app | `xcrun simctl push <udid> <bundle> payload.json`; an Apple-silicon simulator also receives REAL sandbox pushes from a debug build |
+| Typing, a real double tap | Maestro (`inputText`, `doubleTapOn`); about 35 s a run, most of it the driver |
+| The keyboard over a field | `tools/sim-keyboard.m`: a headless simulator acts as if a hardware keyboard is attached, so no keyboard rises until it is switched off |
+
+What it cannot show, so these are the steps a person keeps:
+
+- **A notification tapped from outside the app.** SpringBoard drops synthetic
+  taps on a home-screen banner or a Notification Center entry (idb, with or
+  without a press duration, and Maestro alike): the banner goes, the app never
+  opens. Background and cold-start taps need a phone.
+- **The lock-screen media buttons.** No Now Playing platter is drawn, Control
+  Center is empty, and nothing on the command line sends a remote play, pause
+  or skip. The log line above proves the app publishes; the buttons need a
+  phone.
+
+Two traps. **`idb ui text` with nothing focused goes to React Native's dev
+shortcuts**: `d` opens the Dev Menu and `i` turns on the element inspector,
+which persists in the app's preferences (`RCTDevMenu.showInspector`; set it
+false with `plutil` in the app's data container while the app is stopped).
+And **when `describe-all` returns one element for every app** and Maestro
+times out "waiting for AX loaded notification", the host is overloaded (a
+rented Mac shares its machine): stop a second simulator, wait for `uptime` to
+fall, boot again.
+
 ## Rules protect clients — not your own backend
 
 Security rules apply to client SDKs. The Admin SDK **bypasses them entirely**, so
