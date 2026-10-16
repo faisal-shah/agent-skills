@@ -392,12 +392,19 @@ traps on the way:
 
 - **`user.reload()` on a deleted account signs the person out**, which removes
   the screen that was about to explain why. Ask `accounts:lookup` instead.
-- **On the emulators, the first Firestore listen can stay open and silent**:
-  the document exists, the listener never hears it, and reopening the client's
-  connection does not help; a page reload does at once. A web "Try again"
-  that reloads the page recovers it; a browser suite should answer the
-  "still setting up" state with the app's own Try again rather than a longer
-  wait.
+- **The listener can miss the profile for good.** Measured on the emulators:
+  when the trigger writes the document while the client's listen for it is
+  still being registered, the listener answers "does not exist" and never
+  hears the write. The stale answer belongs to the listen TARGET, so
+  listening again, a direct read from the server, a token refresh and
+  reopening the connection all keep it. Without a persistent cache a page
+  reload cures it; WITH the web's persistent (IndexedDB) cache the target and
+  its resume token survive the reload, and only an emptied cache gives a new
+  target that hears the server. So a web "Try again" terminates Firestore,
+  clears its persistence and reloads, but only once `waitForPendingWrites`
+  settles (unsent writes wait in that cache) and no other tab holds it;
+  otherwise it just reloads. A browser suite should answer the "still setting
+  up" state with the app's own Try again rather than a longer wait.
 
 ### Wiping the emulators does NOT sign the app out
 
