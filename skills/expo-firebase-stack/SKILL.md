@@ -4955,10 +4955,14 @@ Two traps. **`idb ui text` with nothing focused goes to React Native's dev
 shortcuts**: `d` opens the Dev Menu and `i` turns on the element inspector,
 which persists in the app's preferences (`RCTDevMenu.showInspector`; set it
 false with `plutil` in the app's data container while the app is stopped).
-And **when `describe-all` returns one element for every app** and Maestro
-times out "waiting for AX loaded notification", the host is overloaded (a
-rented Mac shares its machine): stop a second simulator, wait for `uptime` to
-fall, boot again.
+And **an app's accessibility tree can come back as a single element** (role
+null, no children) while SpringBoard's tree on the home screen is complete,
+and Maestro then times out "waiting for AX loaded notification". The cause is
+not pinned down: it has persisted at low load and through a simulator
+shutdown, boot and companion restart, and cleared once after a second booted
+simulator was shut down. Do not wait on it: drive by coordinates from
+screenshots (`sim-ui.py shot`, then `tapxy` in points, pixels / 3), and check
+each step with the next screenshot.
 
 ## Rules protect clients — not your own backend
 

@@ -46,7 +46,13 @@ def idb(*args: str, timeout: int = 30) -> str:
 
 
 def tree() -> list:
-    return json.loads(idb("ui", "describe-all"))
+    out = idb("ui", "describe-all")
+    try:
+        return json.loads(out)
+    except json.JSONDecodeError:
+        # idb prints a status line instead of JSON while its companion is still
+        # starting, or when it has lost the simulator.
+        sys.exit(f"idb answered without a tree (companion starting or not connected): {out.strip()[:200]}")
 
 
 def find(key: str):
