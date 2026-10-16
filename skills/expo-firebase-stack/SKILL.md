@@ -196,6 +196,44 @@ keytool -list -v -keystore app/android/app/debug.keystore \
 
 The **release** key differs and must be registered separately before shipping.
 
+### A new Play app already has a Google signing key, and its first APKs keep it
+
+Play Console enrols every new app in Play App Signing with a Google-generated
+(quantum-ready) key **the moment the app is created**, before any upload. The
+"choose your signing key" step older guides put in the first release is gone
+from that page, and an upload, through the console or the API, just uses the
+key that is there.
+
+To sign with your own key instead, so the APK you hand out yourself and the
+copy from Play update each other: App integrity → App signing → **Change key**
+→ "Export and upload a key from Java keystore", allowed until a release reaches
+open testing or production. Two traps:
+
+- **The encryption key PEPK wraps with is per app.** Download it on each app's
+  page; a zip made with another app's key is refused.
+- **APKs Play already generated keep the old key.** The App signing page shows
+  your certificate the moment you save, but a bundle uploaded before the change
+  still yields APKs signed with Google's, and releasing it ships those. Its
+  versionCode is spent, so the fix is the next version.
+
+So check what phones will get, not what the page says: upload as a **draft**
+release (testers never see a draft), read
+`GET applications/{package}/generatedApks/{versionCode}`, compare each
+`certificateSha256Hash` with the bundle's own certificate (`keytool -printcert
+-jarfile app.aab`), and only then set the release `completed`. Seen once: the
+API completed the first internal release of an app with no earlier release, so
+a never-released app does not force a draft.
+
+### Errors from phones nobody owns, minutes after a Play upload
+
+A crash report from a "OnePlus 8 Pro" with x86 ABIs, two cores, a 288×448
+screen and a kernel built on Google's build servers, booted minutes before the
+app started, is **Play's pre-launch report robot**, which installs each new
+upload on test devices and taps around. It cannot complete a Google sign-in, so
+it reports `ApiException: INTERNAL_ERROR` from the sign-in screen. No user is
+affected; drop events from emulators in production builds, or expect one batch
+per upload.
+
 ### `DEVELOPER_ERROR` on Play builds only, and the fingerprint matches
 
 Sign-in works on every build you make and fails only for copies installed from
@@ -2084,6 +2122,11 @@ it into a keychain of its own and install the profile. Then:
   `xcrun altool --validate-app` and `--upload-package <ipa> --api-key …
   --api-issuer …`. **altool ignores a flag it does not know**, so use the
   spelling its own `--help` prints; a misspelt one never fails.
+- **App Store Connect's API has bad hours**: requests that hang, and `500
+  UNEXPECTED_ERROR`s that clear a minute later. A check that fails on one
+  stalls the release; give each request a timeout and retry timeouts, network
+  errors, 5xx and 429 a few times with a growing wait, and treat any other
+  answer as final.
 - **A multi-line secret is masked line by line.** An env file stored as one
   secret masks `NAME=value` lines, never a value printed by itself: emit
   `::add-mask::` for each value. And store `NAME=value` lines only: a comment
