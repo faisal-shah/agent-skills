@@ -2126,7 +2126,12 @@ it into a keychain of its own and install the profile. Then:
   UNEXPECTED_ERROR`s that clear a minute later. A check that fails on one
   stalls the release; give each request a timeout and retry timeouts, network
   errors, 5xx and 429 a few times with a growing wait, and treat any other
-  answer as final.
+  answer as final. altool calls the same API and fails the same way
+  (`NSURLErrorDomain Code=-1001`, "Did not receive a response", "Cannot
+  determine the Apple ID from Bundle ID", and a 25-minute validation that
+  leaves the upload no time): retry it when its log shows the request never
+  got through, and give the upload job more than half an hour. Apple's status
+  page can show every service available throughout.
 - **A multi-line secret is masked line by line.** An env file stored as one
   secret masks `NAME=value` lines, never a value printed by itself: emit
   `::add-mask::` for each value. And store `NAME=value` lines only: a comment
