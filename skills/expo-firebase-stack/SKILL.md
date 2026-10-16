@@ -471,6 +471,58 @@ too.
 Note an empty provider list is also what an **anonymous** sign-in has. An email
 address is what separates the two.
 
+
+### One password account in a Google-only app, held shut at the auth layer
+A store reviewer cannot pass Google's login challenge for a Workspace account
+(the challenge for an unusual location goes to whoever holds the account's
+phone, and an admin can lift it for minutes, not days), so a Google-only app
+ends up wanting exactly ONE email-and-password account. Enabling the
+Email/Password provider for it opens the public Identity Toolkit API to anyone
+holding the web API key: `accounts:signUp` with any address and password makes
+an account, app or no app. Hiding the form protects nothing.
+
+Hold it at the auth layer, with the project on Identity Platform:
+
+- **`beforeUserCreated` refuses every password sign-up.** The one account is
+  made with the Admin SDK, which blocking functions never see, so "no password
+  sign-up, ever" costs the admin path nothing. Verified against the Auth
+  emulator, not assumed.
+- **`beforeUserSignedIn` refuses a password sign-in for any other address**, so
+  a second password account made by mistake cannot sign in either.
+- **Rules and callables lock on the session's provider**:
+  `request.auth.token.firebase.sign_in_provider == 'password'` is never a
+  manager or an admin, and a password session for any other address is signed
+  out. Read it with `.get()`
+  (`request.auth.token.get('firebase', {}).get('sign_in_provider', '')`): an
+  absent key is an evaluation error, which is a denial everywhere.
+
+Deploy the blocking functions BEFORE enabling the provider, so it is never open
+without the gate. They run on every sign-up and sign-in, Google ones included,
+with a 7-second budget that includes a cold start.
+
+Three traps on the way:
+
+- **The console's "Add user" makes an UNVERIFIED account.** An auth-create
+  trigger that deletes unverified addresses deletes it at once. Create it with
+  `createUser({ email, password, emailVerified: true })`.
+- **`@firebase/rules-unit-testing` gives every test token
+  `firebase.sign_in_provider: 'custom'`**, and options you pass are spread over
+  it, so `authenticatedContext(uid, { email, firebase: { sign_in_provider:
+  'password', identities: {} } })` impersonates a password session. Existing
+  tests are unaffected by the lock because they are `custom`.
+- **The gate exists only when the Functions emulator runs.** A rules-and-Auth
+  emulator pass never calls a blocking function, so a "refused" test there
+  passes for the wrong reason or fails for none. Give the gate its own pass with
+  `--only firestore,auth,functions` (build the functions first: the emulator
+  loads the built bundle), drive it through the REST API like an outsider, and
+  assert on what is left behind (no account), not only on the error.
+
+Every user-facing failure on that door gets one sentence (wrong password, no
+account, refused address alike): telling them apart tells a stranger which
+addresses have accounts. The refusal reaches the client inside
+`auth/internal-error`'s message, so put a marker in it to tell it from a real
+internal error.
+
 ### One snapshot, then silence (React Native only)
 The WebChannel stream dies silently under RN networking. Use
 `experimentalForceLongPolling` on native, `experimentalAutoDetectLongPolling` on
@@ -686,6 +738,15 @@ expect(undeclared).toEqual([]);   // red on the broken config: ['fflate']
 A missing name there is either a dependency to declare or — as here — a module
 that should not be in the bundle at all.
 
+### "The Auth emulator holds 0 users" can be an error body read as zero
+`GET /emulator/v1/projects/<project>/accounts` answers
+`{"message": "Method GET not allowed ..."}`, and a one-liner that counts
+`userInfo` in the reply prints 0 for that as readily as for an empty emulator.
+That is exactly the number a "this created no account" check wants to see, so
+it looks like proof. Count through the Admin SDK instead
+(`FIREBASE_AUTH_EMULATOR_HOST` set, `getAuth().listUsers()`), and print the
+emails as well as the count, so an error cannot pass for an answer.
+
 ### Cloud Build: `Cannot read properties of null (reading 'edgesOut')`
 A functions deploy uploads only the functions directory. If there is no lockfile
 in it, the Node buildpack generates one — `npm install --package-lock-only` —
@@ -719,6 +780,14 @@ the buildpack actually runs, rather than deploying to find out:
 ```sh
 npm ci --dry-run --omit=dev
 ```
+
+**npm 10 reproduces the crash locally**: `npx npm@10 install
+--package-lock-only` in the scratch copy fails with the same `edgesOut` error on
+a `package.json` that npm 11 resolves cleanly. So generate the lock with npm 11,
+restore the ranges, and verify the result with npm 10's `npm ci --dry-run
+--omit=dev` too: npm 10 (Node 22's) accepts a lockfile npm 11 wrote, which is
+the case that matters for the buildpack. A lockfile in a workspace package does
+not disturb the root workspace's `npm ci`.
 
 ### A failed function create leaves a stub that blocks every retry
 When a create fails *after* the function record exists but before its service and
@@ -1631,6 +1700,35 @@ started Metro. Use a separately started server only for something that needs it
 in a different mode (seeding through the web build, say), and stop it before the
 native run rather than sharing it.
 
+**On iOS the same trap has a second door.** `expo run:ios --port N` with a Metro
+already on N prints "Skipping dev server" and reuses it, with the same
+staleness, and `--port` with `--no-bundler` is refused outright. Worse, a Metro
+started with **`CI=1`** (the usual way to stop an agent's shell from being
+prompted) runs with "reloads are disabled": it serves the first bundle it built
+for as long as it lives. A new platform file (`Foo.ios.tsx` beside `Foo.tsx`)
+is not resolved by a running Metro at all. Whatever the loop, the check is the
+same: fetch the bundle the app fetches and grep it for a string only your edit
+contains, never for a word a library also uses; then restart Metro with
+`--clear` and relaunch.
+
+### An iOS debug app loads its JS from whichever Metro holds its compiled-in port
+On a machine several React Native projects share, 8081 belongs to whoever
+started first. A debug build compiles its packager port in (`RCT_METRO_PORT`,
+8081 by default, and React Native's precompiled core may not see a build
+setting at all), so your app on the simulator asks 8081 and gets THE OTHER
+PROJECT'S bundle: its screens, or a red box naming its modules.
+
+Run your Metro on a free port and pin the app to it with the user default the
+debug app reads before its compiled-in value:
+
+```bash
+xcrun simctl spawn <udid> defaults write <bundle-id> RCT_jsLocation -string 127.0.0.1:<port>
+xcrun simctl terminate <udid> <bundle-id>; xcrun simctl launch <udid> <bundle-id>
+```
+
+It persists in the app's container until the app is deleted. Then confirm the
+connection the cheap way: the app's console lines appear in YOUR Metro's log.
+
 ### A release build that finished in eleven seconds shipped the previous label
 The sign-in label (or whatever you inject through an `EXPO_PUBLIC_*` value at
 release time — a commit sha, a build date) reads the PREVIOUS build's value on a
@@ -2097,6 +2195,44 @@ Best of all, `idb ui describe-all` returns the accessibility tree with
 device sizes, and it is the only automated way to check that **icon-only
 controls actually carry the labels they are supposed to** — something a
 screenshot test can never see.
+
+### A date or time field written for Android's dialog closes the iOS wheel after one column
+`@react-native-community/datetimepicker` is a DIALOG on Android, with OK and
+Cancel, so the natural wrapper shows it on press and hides it on its first
+`onChange`. On iOS the same component is an inline control and that wrapper
+breaks twice: the default presentation is a compact pill that needs a second
+tap to open its popover, and the time wheel reports EVERY column it moves as a
+change, so the first hour scrolled closes it. Setting 13:45 took nine taps.
+
+Give iOS its own sibling (`DateTimeField.ios.tsx`): the field opens a bottom
+sheet holding the full picker, `display="inline"` (a calendar) for a date and
+`display="spinner"` for a time, a draft that `onValueChange` updates, and
+Cancel/Done, with Done the only thing that commits. `accentColor` themes the
+calendar and `textColor` the spinner (each ignores the other). Share the value
+conversion with the Android file rather than copying it. A browser cannot show
+any of this; it is a simulator check.
+
+### A top padding that clears Android's status bar sits inside the Dynamic Island
+A fixed header pad (48 here) clears an Android status bar (24 to 32 dp on most
+phones) and leaves the title under an iPhone's 62 pt top inset; a scroll
+view's fixed bottom padding leaves the last button on the home indicator. Pad
+by the safe-area insets instead, and keep the old value as a floor so Android
+does not move: `paddingTop: Math.max(48, insets.top + 16)`, and add
+`insets.bottom` to the scroll content's bottom padding. `useSafeAreaInsets`
+needs a `SafeAreaProvider` at the root, which nothing else in the tree had
+supplied; on the web the insets are zero and nothing moves.
+
+### Apple's sign-in alert names the app by its bundle name, not its display name
+Native Google Sign-In on iOS opens an `ASWebAuthenticationSession`, and the
+system alert in front of it reads "*"<CFBundleName>" Wants to Use
+"accounts.google.com" to Sign In*". `CFBundleName` is the Xcode target's name,
+which Expo derives from `expo.name` with the spaces removed, so a display name
+of "My Example App" appears there as "MyExampleApp" while the home
+screen and the notification prompt use the display name. Cosmetic, but it is
+the first thing a reviewer reads; decide whether to set `CFBundleName` in
+`ios.infoPlist` (Apple asks for 15 characters or fewer). Seeing that alert at
+all is also the cheapest proof that the Google URL scheme and client id are
+wired: without them the SDK throws before it.
 
 ## Native touch
 
@@ -3722,6 +3858,13 @@ Watch it on a device rather than reasoning about it — `adb shell dumpsys packa
 is the whole state machine, readable at any point, and it is how you tell "we
 never asked" from "they said no".
 
+**iOS makes the same point more sharply: it asks once per install.** The
+first `requestPermissionsAsync` shows the system alert; after "Don't Allow"
+every later request returns denied without asking, and only the Settings app
+can change it. A request from a sign-in effect spends that one alert on a
+screen the person did not tap, so the rule above becomes the only workable
+design there: sign-in registers what is already granted, and the button asks.
+
 ### Returning from the OS settings screen re-runs nothing
 Tell a blocked device to open system settings and you have sent the person out
 of the app. They turn notifications on. They come back. The screen still says
@@ -5023,6 +5166,14 @@ shutdown, boot and companion restart, and cleared once after a second booted
 simulator was shut down. Do not wait on it: drive by coordinates from
 screenshots (`sim-ui.py shot`, then `tapxy` in points, pixels / 3), and check
 each step with the next screenshot.
+
+Two more on a Mac several sessions share. **Address the simulator by UDID**:
+the moment another session boots a second one, `booted` means two devices and
+every `simctl ... booted` call is ambiguous. And **CoreSimulator stalls while
+another simulator boots**: a `simctl io <udid> screenshot` that normally takes a
+second timed out at 60, and a `terminate`/`launch` pair returned without
+relaunching anything. Bound every call, and when a step's screenshot looks like
+the step never happened, check the process id changed before believing it.
 
 ## Rules protect clients — not your own backend
 
