@@ -5380,6 +5380,17 @@ A green run is evidence only after you have seen the red one. When two guards
 share a mechanism, falsify them *separately* — passing is not proof that both
 are live, only that at least one is.
 
+**An absence check in a browser suite passes on a screen that has not
+loaded.** `waitFor` the screen's title, then assert a button is NOT visible:
+green, and green with the gate removed too. The title text was also the nav
+rail's label, drawn while the screen itself was still a spinner, so the
+"absent" button had not rendered for anyone yet. The positive twin is a
+single `isVisible()` sample of something an async call fills in: it loses
+the race on a slow machine and passes on CI. Wait for a positive sign the
+screen has SETTLED — text rendered from the same state as the thing you
+check, ideally text that differs on each side of the gate — then sample
+the absence. Falsify it: break the gate and watch that check go red.
+
 ### Web is not evidence about native, and an emulator is not a device
 `react-native-web` resolves flexbox trees differently, so a screen that renders
 perfectly in a browser can be blank on a phone. An emulator misreports IME
