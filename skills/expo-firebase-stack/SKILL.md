@@ -1,6 +1,6 @@
 ---
 name: expo-firebase-stack
-description: Diagnose and avoid the recurring traps in Expo + react-native-web + Firebase JS SDK apps — Google sign-in failing only inside chat-app browsers, DEVELOPER_ERROR on Android, emulator data that "does not exist", stale Metro bundles, config plugins that silently do nothing in the bare workflow, module-resolution errors naming files that exist, native debug builds serving stale JS or an unset EXPO_PUBLIC flag, screenshotting a stale installed build, unauthenticated screenshots that verify nothing, unthemeable react-native-web controls, push notifications that deliver nothing while every visible part works, an Android permission prompt raised at the worst possible moment because nothing refuses it, a permission screen that goes stale the moment the person leaves to fix the setting it named, live-query races that make seeds and tests silently do nothing, nightly "backups" that are really mirrors and protect against nothing, and device checks handed to a person that the emulator can run (a throttled network, the lock screen, a killed app). Use when building, debugging, deploying, or verifying an Expo app that shares one codebase across Android and web via react-native-web with Firebase for auth/Firestore/Functions.
+description: Diagnose and avoid the recurring traps in Expo + react-native-web + Firebase JS SDK apps — Google sign-in failing only inside chat-app browsers, DEVELOPER_ERROR on Android, emulator data that "does not exist", stale Metro bundles, config plugins that silently do nothing in the bare workflow, module-resolution errors naming files that exist, native debug builds serving stale JS or an unset EXPO_PUBLIC flag, screenshotting a stale installed build, unauthenticated screenshots that verify nothing, unthemeable react-native-web controls, push notifications that deliver nothing while every visible part works, an Android permission prompt raised at the worst possible moment because nothing refuses it, a permission screen that goes stale the moment the person leaves to fix the setting it named, live-query races that make seeds and tests silently do nothing, Android callables that hang for minutes then all land at once, nightly "backups" that are really mirrors and protect against nothing, and device checks handed to a person that the emulator can run (a throttled network, the lock screen, a killed app). Use when building, debugging, deploying, or verifying an Expo app that shares one codebase across Android and web via react-native-web with Firebase for auth/Firestore/Functions.
 ---
 
 # Expo + react-native-web + Firebase: the traps
@@ -593,6 +593,69 @@ internal error.
 The WebChannel stream dies silently under RN networking. Use
 `experimentalForceLongPolling` on native, `experimentalAutoDetectLongPolling` on
 web.
+
+### A callable hangs for minutes on Android, then every tap lands at once
+
+**Symptom:** on a phone, a callable spins for over a minute and fails with
+`deadline-exceeded`, or never answers at all. Retapping changes nothing. Then
+the server logs show **no** request from the phone for that whole window, then
+every tap arriving within a few milliseconds, each answered in a second or
+two. The action you were told failed happened anyway. Firestore kept working
+throughout. It does not reproduce on demand.
+
+**Cause:** React Native's `OkHttpClientProvider.createClientBuilder()` sets the
+connect, read and write timeouts to **0 (infinite)** and configures no HTTP/2
+ping. A pooled HTTP/2 connection that dies silently still looks healthy to
+OkHttp, so every new call to that host is multiplexed onto it and waits until
+Android's TCP stack gives up, which takes minutes. Once five calls to one host
+are stuck (`maxRequestsPerHost`), the rest queue behind them in the dispatcher.
+When the connection finally breaks, OkHttp retries them all on a fresh one.
+The Functions SDK's 70 s deadline is a `Promise.race` that **cancels nothing**,
+so a call the UI already reported as failed still reaches the server.
+Firestore is unaffected only because it is on a different connection.
+
+**Fix:** install your own client factory in `MainApplication.onCreate`, before
+React Native loads, built from RN's own builder so cookies and cache stay:
+
+```kotlin
+OkHttpClientProvider.setOkHttpClientFactory {
+  OkHttpClientProvider.createClientBuilder(applicationContext)
+    .connectTimeout(10, TimeUnit.SECONDS)   // a dead route moves to the next address
+    .pingInterval(30, TimeUnit.SECONDS)     // a dead h2 connection is found and replaced
+    .build()
+}
+```
+
+OkHttp fails a connection when a ping's pong has not arrived by the NEXT ping,
+so detection takes up to two intervals; 30 s keeps that inside the callable
+deadline, and OkHttp retries the stuck calls transparently. Do **not** add a
+read or call timeout: Firestore's long-poll requests stay open by design.
+
+**The ping breaks slow uploads, so exempt Cloud Storage.** A ping is queued
+behind DATA frames already written, and Google's front ends advertise a 1 MiB
+flow-control window (`INITIAL_WINDOW_SIZE` 1048576 on Storage, Functions and
+Firestore alike), so up to 1 MiB of upload can sit ahead of it. Once the uplink
+cannot move 1 MiB within one interval (about 280 kbit/s at 30 s), a healthy
+upload connection is declared dead. Measured with OkHttp 4.9.2: a 2 MiB
+upload at 200 kbit/s failed at 60 s with the ping and succeeded in 85 s
+without it. Firebase Storage sends resumable chunks with `retry=false` and
+does not retry a network error, so the whole upload fails. Route Storage paths
+(`/v0/b/`, on the production host and the emulator alike) to a sibling client
+with no ping and its own `ConnectionPool`, from an application interceptor.
+React Native builds each request's client with `newBuilder()`, which keeps
+the interceptor. Derive the sibling from the same base so it shares the
+dispatcher: RN cancels by request tag through the dispatcher, and a shared
+dispatcher lets that reach the handed-off synchronous call.
+
+**Prove it without a phone.** On the JVM, run the OkHttp version RN ships
+against a local h2 server that advertises a 1 MiB window, behind a TCP proxy
+that can stop forwarding an established connection while leaving its sockets
+open, and can throttle the uplink. Stock settings: still hanging at 200 s.
+With the ping: retried and answered at 58 s. On a `google_apis` AVD (`adb
+root`), `iptables -I OUTPUT -p tcp -d 10.0.2.2 --dport <functions port> --syn
+-j DROP` shows the connect timeout is live in the real app: the call fails at
+10 s instead of hanging. The local emulators speak plain HTTP/1.1, where pings
+do not exist, so the upload side of this is only testable in the harness.
 
 ### An optional callable field arrives as `null`, not missing
 A client sends `{ classId: someState ?? undefined }` for "nothing selected". The
