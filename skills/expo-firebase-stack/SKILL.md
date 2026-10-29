@@ -439,6 +439,34 @@ adb shell pm clear <package>
 Any script that resets emulators should do this in the same breath, rather than
 leaving it to be rediscovered at the next confusing screen.
 
+### A rebuilt fixture loses documents to the LAST fixture's delete triggers
+
+A script empties Firestore through the emulator's
+`DELETE /emulator/v1/projects/<project>/databases/(default)/documents` and
+writes a fresh fixture with the same document ids. Most runs are fine. Now and
+then one document is missing, or present with its subcollections gone (a list
+one item short, a record with no comments), and nothing logs an error.
+
+The bulk delete fires `onDocumentDeleted`, and the delete half of
+`onDocumentWritten`, once for every document it removes. The Functions
+emulator delivers those events after the HTTP `DELETE` has returned, while your
+script is already writing. A cleanup trigger shaped like "if the document is
+gone, `recursiveDelete` it and everything under it" passes its existence check
+before your new document lands, then deletes the new one. A counter the
+triggers keep with `FieldValue.increment` on a parent document is decremented
+the same way, after you have written it fresh. The Functions log shows one run
+per old document, all landing after the wipe.
+
+Waiting a fixed time after the wipe narrows the window but does not close it.
+Two fixes do:
+
+- **Give every rebuild fresh ids** (a timestamp suffix), and have whatever uses
+  the fixture (tests, screenshots, recordings) read the ids from the rebuild
+  rather than hard-coding them. A late trigger can then only reach ids that are
+  already gone.
+- **Restart the emulators** instead of wiping them, when rebuilds are rare
+  enough to afford the start-up. No delete events fire.
+
 ### A user deleted mid-session stays signed in on the emulator
 
 Delete an account while someone is signed in with it (an auth-create trigger
