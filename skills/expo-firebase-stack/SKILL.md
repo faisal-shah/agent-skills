@@ -467,6 +467,21 @@ Two fixes do:
 - **Restart the emulators** instead of wiping them, when rebuilds are rare
   enough to afford the start-up. No delete events fire.
 
+### Two trigger runs in one second come out in either order
+
+A Firestore trigger writes a log line per change and takes its time from
+`event.time`. The tests pass alone and fail under load: two changes made in the
+same second come back in the wrong order, and a retried test sees extra
+entries.
+
+The emulator gives `event.time` in whole seconds (`2026-10-29T20:07:22Z`), so
+two changes in one second get the same value, and a query ordered by it breaks
+the tie on document id, which is random. Take the time from the document
+instead: `event.data.after.updateTime.toMillis()` is the commit time, to the
+millisecond, on the emulator and in production alike. A retried test that
+re-creates its fixture with the same id is an UPDATE to the trigger, not a
+create, so give each attempt fresh ids.
+
 ### A user deleted mid-session stays signed in on the emulator
 
 Delete an account while someone is signed in with it (an auth-create trigger
@@ -3489,6 +3504,37 @@ Rehearse this once against a throwaway project. A restore path nobody has walked
 is a hope, not a plan — and the step that surprises people is not the restore, it
 is discovering the destination id can never be the one their app is configured
 for.
+
+### Reading old backups is slow, capped, and "SUCCESSFUL" too early
+
+Reconstructing when something changed means reading many backups, and each
+one has to be restored into a database of its own first. Four things decide
+how that goes:
+
+- **A restore takes about 40 minutes even for a database of a few
+  megabytes.** The progress figure sits at 20-30% for most of it.
+- **A project runs at most 13 restores at a time.** The fourteenth fails with
+  `FAILED_PRECONDITION: There are 13 ongoing restores`. Queue them.
+- **The copy inherits the source's delete protection.** Deleting it fails until
+  `gcloud firestore databases update --database=<copy>
+  --no-delete-protection` succeeds.
+- **"SUCCESSFUL" is not finished.** After the operation reports SUCCESSFUL, the
+  copy can still refuse that update, or the delete, with `Cannot serve because
+  the database ... is in the middle of restore`. Its documents read correctly
+  meanwhile: two reads of the same copy, either side of the refusal, were
+  identical. Retry the delete until it is accepted, and make the update your
+  readiness test before reading.
+
+Read the recent past without restoring anything. Point-in-time recovery serves
+reads at any whole minute in its 7-day window, through the REST API's
+`readTime` parameter (`documents/<collection>?readTime=2026-10-22T20:00:00Z`).
+It costs ordinary reads and answers at once. The window moves forward every
+minute, so read the oldest hours first.
+
+To place changes across 14 weeks of backups, restore one backup a week, compare
+neighbours, then restore the days in between only for the weeks that changed.
+Give the copies a fixed prefix (`bh-<timestamp>`) and have every script that
+deletes refuse any other name.
 
 ### Retention is worthless if nobody notices in time
 The failure that beats a 14-week window is specific: **data breaks just before a
