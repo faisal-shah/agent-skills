@@ -3130,6 +3130,49 @@ Your HTML must then be in the library's own vocabulary (`p`, `br`, `b`, `i`,
 parser. Reproduce from a COLD start — force-stop and relaunch — before calling a
 fix verified: a warm re-open can show the right height with the bug intact.
 
+### Android: "Select all" on rendered rich text takes one paragraph
+Long-press a description or comment drawn as one `<Text>` per paragraph and list
+row: Select all highlights only the block you pressed, and a row without
+`selectable` cannot be selected at all.
+
+Each `<Text>` is its own Android `TextView`, and selection cannot cross views;
+React Native has nothing like a selection container. The document must be ONE
+view. A single `<Text>` with nested children works, but React Native cannot set a
+leading-margin span from JavaScript, so wrapped list lines fall back to the left
+edge. `react-native-enriched-html`'s `EnrichedText` with `selectable` is one
+`TextView` with real list spans. Keep the browser on DOM elements: browser
+selection already crosses them, and the library's web build renders through
+`innerHTML` and pulls in TipTap. `uiautomator dump` does not list the floating
+Copy / Select all toolbar (it is another window); find it in a screenshot.
+
+### react-native-enriched-html: list numbers out of order, phantom list rows
+An `<ol>` in `EnrichedText` (or the input) sometimes draws 1, 1, 2, 3, 3, 2, … with
+empty numbered rows. Mostly on a cold start; warm re-opens look fine.
+
+The Android `HtmlToSpannedConverter` keeps its list counter and empty-item flag in
+STATIC fields, and a text view is parsed on the layout thread (`MeasurementStore`)
+and the UI thread at once. Present in 1.1.1 and 1.2.0. Serialise the parse with
+`patch-package`, one word, and add a test that reads the installed source so a
+patch that silently stopped applying fails CI:
+
+```java
+// android/.../common/parser/EnrichedParser.java
+public static synchronized <T> Spanned fromHtml(
+    String source, T style, EnrichedSpanFactory<T> spanFactory, Pattern linkRegex) {
+```
+
+Measured on an emulator: five damaged lists in fourteen cold starts unpatched, none
+in fourteen patched. Count cold starts (force-stop, relaunch, open); the list
+markers are drawn, not text, so a UI dump cannot show the numbers.
+
+### react-native-enriched-html: list bullets and numbers vanish in Arabic or Hebrew
+Both list spans place the marker for a left-to-right paragraph; in a
+right-to-left one it lands off the canvas. For a list whose item starts with an
+RTL letter, emit `<p>• …</p>` / `<p>1. …</p>` lines instead, for the WHOLE list,
+since splitting an `<ol>` restarts its numbering. The same parser collapses runs
+of spaces as a browser would; send the second and later spaces as U+00A0 if the
+stored text keeps them.
+
 ## Observability
 
 ### Test runs pollute the production error project
