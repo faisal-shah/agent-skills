@@ -3165,6 +3165,19 @@ Measured on an emulator: five damaged lists in fourteen cold starts unpatched, n
 in fourteen patched. Count cold starts (force-stop, relaunch, open); the list
 markers are drawn, not text, so a UI dump cannot show the numbers.
 
+### react-native-enriched-html on iOS: two lines run together, and an iPhone save keeps it
+Text with a line break inside a paragraph shows as one line on an iPhone and two
+on Android, and saving it from the iPhone editor stores the lines joined.
+
+The iOS parser turns `<br>` into a newline only when another tag sits right beside
+it (`><br>` or `<br><`); `line<br>line` loses the break. Never hand a phone a
+`<br>` inside a paragraph: write each line as its own `<p>`, closing and reopening
+any bold or link across the break. The phone editors have no in-paragraph break
+anyway (Android's saves one as a new paragraph), so feed both editors the
+`<p>`-per-line form and keep `<br>` for a browser editor. The same parser returns
+a tapped link's `href` still entity-escaped (`&amp;`); Android decodes it, so
+decode on iOS only.
+
 ### react-native-enriched-html: list bullets and numbers vanish in Arabic or Hebrew
 Both list spans place the marker for a left-to-right paragraph; in a
 right-to-left one it lands off the canvas. For a list whose item starts with an
