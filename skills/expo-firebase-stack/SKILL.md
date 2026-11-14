@@ -791,24 +791,42 @@ the runtime's own (`roles/datastore.user`, `roles/firebaseauth.admin`,
 `<project>@appspot.gserviceaccount.com` and needs its own grants. Then delete
 the `FAILED` stubs (below) before redeploying.
 
-### Callables: "Failed to set invoker", then an HTML 401
-The same organizations enforce domain-restricted sharing
+### Callables: "Failed to set invoker", then an HTML 401 or 403
+`Unable to set the invoker for the IAM policy on the following functions`, and
+the deploy blames `roles/functions.admin` or a network policy. Neither is it:
+`firebase-debug.log` holds the real answer from `run.googleapis.com`, `One or
+more users named in the policy do not belong to a permitted customer`. The same
+organizations enforce domain-restricted sharing
 (`iam.allowedPolicyMemberDomains`), which refuses `allUsers` — and a callable
 needs `allUsers` as its Cloud Run invoker, because the function checks the
-caller itself. Override it for the one project
-(`gcloud org-policies set-policy` with `allowAll` on `projects/<number>`; needs
-`roles/orgpolicy.policyAdmin` on the organization, which an org admin can grant
-themselves). A redeploy does not retry the invoker on unchanged functions, so
-bind it directly for each callable:
+caller itself. A project Owner is refused too, so changing who deploys does not
+help. Every callable that already has its binding keeps it, which is why this
+surfaces months in, on the first NEW callable, often from a CI deployer.
+
+Lift the policy on the one project, bind, and put it back. `gcloud
+org-policies` needs the Org Policy API enabled on the project; the older
+`gcloud resource-manager org-policies` does not. Look first: a project with no
+policy of its own shows only an `etag`, and deleting the override restores it
+exactly. Needs `roles/orgpolicy.policyAdmin` on the organization, which an org
+admin can grant themselves. The binding takes about a minute to be accepted,
+so retry it:
 
 ```sh
+gcloud resource-manager org-policies describe iam.allowedPolicyMemberDomains --project=<project>
+printf 'constraint: constraints/iam.allowedPolicyMemberDomains\nlistPolicy:\n  allValues: ALLOW\n' > allow.yaml
+gcloud resource-manager org-policies set-policy allow.yaml --project=<project>
 gcloud run services add-iam-policy-binding <function-name-lowercased> \
-  --member=allUsers --role=roles/run.invoker --region=<region>
+  --member=allUsers --role=roles/run.invoker --region=<region>   # retry ~10 s apart
+gcloud resource-manager org-policies delete iam.allowedPolicyMemberDomains --project=<project>
 ```
 
-For a few minutes afterwards a call with a valid ID token gets an HTML 401, "The
-access token could not be verified", from Cloud Run's front end. That is
-propagation, not your token: wait.
+A redeploy does not retry the invoker on an existing function, so bind it
+directly rather than redeploying. Confirm with an unauthenticated POST of
+`{"data":{}}`: the function's own `UNAUTHENTICATED` JSON means your code ran; a
+Cloud Run HTML page means the binding is still missing. For a few minutes after
+binding, a call with a valid ID token can get an HTML 401, "The access token
+could not be verified", from Cloud Run's front end. That is propagation, not
+your token: wait.
 
 ### A task-queue function's deploy fails with "Unable to set the invoker"
 firebase-tools 15.22.4 reads `existing.bindings.filter` from the queue's IAM
