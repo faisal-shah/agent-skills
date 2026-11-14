@@ -816,9 +816,18 @@ more users named in the policy do not belong to a permitted customer`. The same
 organizations enforce domain-restricted sharing
 (`iam.allowedPolicyMemberDomains`), which refuses `allUsers` — and a callable
 needs `allUsers` as its Cloud Run invoker, because the function checks the
-caller itself. A project Owner is refused too, so changing who deploys does not
-help. Every callable that already has its binding keeps it, which is why this
-surfaces months in, on the first NEW callable, often from a CI deployer.
+caller itself. So does a blocking auth function (`beforeSignIn`,
+`beforeUserCreated`), which Identity Platform calls the same way, and an
+`onRequest` function that does not name its invokers. A project Owner is
+refused too, so changing who deploys does not help. Every function that
+already has its binding keeps it, which is why this surfaces months in, on the
+first NEW one, often from a CI deployer.
+
+A deploy pipeline can name them before it deploys: load the built bundle, read
+each export's `__endpoint` (`callableTrigger`, `blockingTrigger`, or
+`httpsTrigger` whose `invoker` list is absent or holds `public`), and compare
+the names with `gcloud functions list`. Schedules, event triggers and task
+queues are called by Google's own service accounts and need no binding.
 
 Lift the policy on the one project, bind, and put it back. `gcloud
 org-policies` needs the Org Policy API enabled on the project; the older
@@ -2807,8 +2816,22 @@ sits under the keys, and the page's `KeyboardAwareScrollView` does not reach
 it. Wrap the modal's content in the library's
 `<KeyboardAvoidingView behavior="padding">` (it watches `Modal`s for the IME on
 Android), so the panel centres in the room above the keyboard; cap the panel's
-height so its body scrolls. Behind the same web seam — a browser resizes the
-page for its own keyboard.
+height so its body scrolls. Or, for a shared dialog component, read
+`useKeyboardState((k) => k.height)`, which follows the IME into the dialog's
+window too (`ModalAttachedWatcher` in its Android source), and add it to the
+backdrop's bottom padding; call it before any early return. Behind the same web
+seam — a browser resizes the page for its own keyboard.
+
+**Proving it takes a screenshot; Maestro cannot tell.** A "tap Cancel with the
+keyboard up, the dialog closes" step passed with the lift removed: Maestro taps
+an element's centre, and a button mostly under the keys can still have its
+centre above them. Nor can it see a spacer the keyboard's height: React Native
+gives a `testID` a resource-id only through its accessibility delegate, and
+Android leaves an empty view out of the tree even with
+`importantForAccessibility="yes"` and `collapsable={false}`. The window behind
+the dialog is not in the hierarchy either, so nothing on the page beneath can
+anchor a relative assertion. Take the screenshot with the keyboard up, and run
+the flow once with the height forced to 0 to see the difference in it.
 
 ### There is no dropdown primitive in React Native
 Use a platform seam: `<select>` on web (keyboard nav, type-ahead and scrolling
