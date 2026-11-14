@@ -725,6 +725,23 @@ This bites hardest on the empty-state path — the first record created, before
 anything exists to reference — which is exactly the path a demo or a fresh
 install takes and a happy-path test does not.
 
+### Error messages end in "[403]", and "internal [0]" replaces "cannot reach the server"
+Since `@firebase/functions` 0.14 (firebase 13), every `FunctionsError` message
+ends with the HTTP status: an `HttpsError('permission-denied', 'Only owners can
+do that.')` reaches the client as `Only owners can do that. [403]`, and a call
+that got no response at all is `internal [0]`, no longer `internal`. An app
+that shows callable messages to people, and maps the bare `internal` to "can't
+reach the server", now shows both raw, on every surface at once, with no error
+anywhere: the codes and the error class are unchanged, only the text.
+
+Strip a trailing `\s*\[\d+\]` from the message of any error whose `code` starts
+with `functions/` before deciding what to show. Test the mapping against the
+SDK's real output, not hand-made errors: initialise an app, stub `fetch`
+(`vi.stubGlobal`), and call a real `httpsCallable` that answers 403 with an
+error body, 503, or rejects. A hand-made `new Error('internal')` keeps passing
+after the SDK changes its format, which is how this stayed on screen through
+several releases.
+
 ### A callable returns "internal", and the browser blames CORS
 Three symptoms, one cause. The functions emulator **accepts connections on its
 port before it has registered any function**. Until registration finishes, every
@@ -791,24 +808,42 @@ the runtime's own (`roles/datastore.user`, `roles/firebaseauth.admin`,
 `<project>@appspot.gserviceaccount.com` and needs its own grants. Then delete
 the `FAILED` stubs (below) before redeploying.
 
-### Callables: "Failed to set invoker", then an HTML 401
-The same organizations enforce domain-restricted sharing
+### Callables: "Failed to set invoker", then an HTML 401 or 403
+`Unable to set the invoker for the IAM policy on the following functions`, and
+the deploy blames `roles/functions.admin` or a network policy. Neither is it:
+`firebase-debug.log` holds the real answer from `run.googleapis.com`, `One or
+more users named in the policy do not belong to a permitted customer`. The same
+organizations enforce domain-restricted sharing
 (`iam.allowedPolicyMemberDomains`), which refuses `allUsers` — and a callable
 needs `allUsers` as its Cloud Run invoker, because the function checks the
-caller itself. Override it for the one project
-(`gcloud org-policies set-policy` with `allowAll` on `projects/<number>`; needs
-`roles/orgpolicy.policyAdmin` on the organization, which an org admin can grant
-themselves). A redeploy does not retry the invoker on unchanged functions, so
-bind it directly for each callable:
+caller itself. A project Owner is refused too, so changing who deploys does not
+help. Every callable that already has its binding keeps it, which is why this
+surfaces months in, on the first NEW callable, often from a CI deployer.
+
+Lift the policy on the one project, bind, and put it back. `gcloud
+org-policies` needs the Org Policy API enabled on the project; the older
+`gcloud resource-manager org-policies` does not. Look first: a project with no
+policy of its own shows only an `etag`, and deleting the override restores it
+exactly. Needs `roles/orgpolicy.policyAdmin` on the organization, which an org
+admin can grant themselves. The binding takes about a minute to be accepted,
+so retry it:
 
 ```sh
+gcloud resource-manager org-policies describe iam.allowedPolicyMemberDomains --project=<project>
+printf 'constraint: constraints/iam.allowedPolicyMemberDomains\nlistPolicy:\n  allValues: ALLOW\n' > allow.yaml
+gcloud resource-manager org-policies set-policy allow.yaml --project=<project>
 gcloud run services add-iam-policy-binding <function-name-lowercased> \
-  --member=allUsers --role=roles/run.invoker --region=<region>
+  --member=allUsers --role=roles/run.invoker --region=<region>   # retry ~10 s apart
+gcloud resource-manager org-policies delete iam.allowedPolicyMemberDomains --project=<project>
 ```
 
-For a few minutes afterwards a call with a valid ID token gets an HTML 401, "The
-access token could not be verified", from Cloud Run's front end. That is
-propagation, not your token: wait.
+A redeploy does not retry the invoker on an existing function, so bind it
+directly rather than redeploying. Confirm with an unauthenticated POST of
+`{"data":{}}`: the function's own `UNAUTHENTICATED` JSON means your code ran; a
+Cloud Run HTML page means the binding is still missing. For a few minutes after
+binding, a call with a valid ID token can get an HTML 401, "The access token
+could not be verified", from Cloud Run's front end. That is propagation, not
+your token: wait.
 
 ### A task-queue function's deploy fails with "Unable to set the invoker"
 firebase-tools 15.22.4 reads `existing.bindings.filter` from the queue's IAM
@@ -3129,6 +3164,62 @@ Your HTML must then be in the library's own vocabulary (`p`, `br`, `b`, `i`,
 `a`, `ul`, `ol`, `li` and its other tags), since it now goes to the strict
 parser. Reproduce from a COLD start — force-stop and relaunch — before calling a
 fix verified: a warm re-open can show the right height with the bug intact.
+
+### Android: "Select all" on rendered rich text takes one paragraph
+Long-press a description or comment drawn as one `<Text>` per paragraph and list
+row: Select all highlights only the block you pressed, and a row without
+`selectable` cannot be selected at all.
+
+Each `<Text>` is its own Android `TextView`, and selection cannot cross views;
+React Native has nothing like a selection container. The document must be ONE
+view. A single `<Text>` with nested children works, but React Native cannot set a
+leading-margin span from JavaScript, so wrapped list lines fall back to the left
+edge. `react-native-enriched-html`'s `EnrichedText` with `selectable` is one
+`TextView` with real list spans. Keep the browser on DOM elements: browser
+selection already crosses them, and the library's web build renders through
+`innerHTML` and pulls in TipTap. `uiautomator dump` does not list the floating
+Copy / Select all toolbar (it is another window); find it in a screenshot.
+
+### react-native-enriched-html: list numbers out of order, phantom list rows
+An `<ol>` in `EnrichedText` (or the input) sometimes draws 1, 1, 2, 3, 3, 2, … with
+empty numbered rows. Mostly on a cold start; warm re-opens look fine.
+
+The Android `HtmlToSpannedConverter` keeps its list counter and empty-item flag in
+STATIC fields, and a text view is parsed on the layout thread (`MeasurementStore`)
+and the UI thread at once. Present in 1.1.1 and 1.2.0. Serialise the parse with
+`patch-package`, one word, and add a test that reads the installed source so a
+patch that silently stopped applying fails CI:
+
+```java
+// android/.../common/parser/EnrichedParser.java
+public static synchronized <T> Spanned fromHtml(
+    String source, T style, EnrichedSpanFactory<T> spanFactory, Pattern linkRegex) {
+```
+
+Measured on an emulator: five damaged lists in fourteen cold starts unpatched, none
+in fourteen patched. Count cold starts (force-stop, relaunch, open); the list
+markers are drawn, not text, so a UI dump cannot show the numbers.
+
+### react-native-enriched-html on iOS: two lines run together, and an iPhone save keeps it
+Text with a line break inside a paragraph shows as one line on an iPhone and two
+on Android, and saving it from the iPhone editor stores the lines joined.
+
+The iOS parser turns `<br>` into a newline only when another tag sits right beside
+it (`><br>` or `<br><`); `line<br>line` loses the break. Never hand a phone a
+`<br>` inside a paragraph: write each line as its own `<p>`, closing and reopening
+any bold or link across the break. The phone editors have no in-paragraph break
+anyway (Android's saves one as a new paragraph), so feed both editors the
+`<p>`-per-line form and keep `<br>` for a browser editor. The same parser returns
+a tapped link's `href` still entity-escaped (`&amp;`); Android decodes it, so
+decode on iOS only.
+
+### react-native-enriched-html: list bullets and numbers vanish in Arabic or Hebrew
+Both list spans place the marker for a left-to-right paragraph; in a
+right-to-left one it lands off the canvas. For a list whose item starts with an
+RTL letter, emit `<p>• …</p>` / `<p>1. …</p>` lines instead, for the WHOLE list,
+since splitting an `<ol>` restarts its numbering. The same parser collapses runs
+of spaces as a browser would; send the second and later spaces as U+00A0 if the
+stored text keeps them.
 
 ## Observability
 
