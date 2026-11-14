@@ -725,6 +725,23 @@ This bites hardest on the empty-state path — the first record created, before
 anything exists to reference — which is exactly the path a demo or a fresh
 install takes and a happy-path test does not.
 
+### Error messages end in "[403]", and "internal [0]" replaces "cannot reach the server"
+Since `@firebase/functions` 0.14 (firebase 13), every `FunctionsError` message
+ends with the HTTP status: an `HttpsError('permission-denied', 'Only owners can
+do that.')` reaches the client as `Only owners can do that. [403]`, and a call
+that got no response at all is `internal [0]`, no longer `internal`. An app
+that shows callable messages to people, and maps the bare `internal` to "can't
+reach the server", now shows both raw, on every surface at once, with no error
+anywhere: the codes and the error class are unchanged, only the text.
+
+Strip a trailing `\s*\[\d+\]` from the message of any error whose `code` starts
+with `functions/` before deciding what to show. Test the mapping against the
+SDK's real output, not hand-made errors: initialise an app, stub `fetch`
+(`vi.stubGlobal`), and call a real `httpsCallable` that answers 403 with an
+error body, 503, or rejects. A hand-made `new Error('internal')` keeps passing
+after the SDK changes its format, which is how this stayed on screen through
+several releases.
+
 ### A callable returns "internal", and the browser blames CORS
 Three symptoms, one cause. The functions emulator **accepts connections on its
 port before it has registered any function**. Until registration finishes, every
