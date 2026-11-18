@@ -129,6 +129,25 @@ adb shell settings put secure user_setup_complete 1
 Expect `system_server` to restart afterwards, which under TCG takes minutes and
 reports `cmd: Can't find service: activity` throughout.
 
+### Signing the CLIs in from a remote session: a password prompt, a dead link, a third login
+`gcloud auth login <account> --no-launch-browser` on an account whose token
+needs reauthentication prints `Reauthentication required. Please enter your
+password:` instead of a link, which asks for the password in a terminal (or
+through whoever relays it). `--force` gets the link-and-code flow.
+
+`firebase login --reauth --no-localhost` prints a session ID and a link, then
+waits for a code; the link went stale before it was used once. Start it when
+the person is ready, inside `tmux`, so the prompt waits while the link travels,
+and type the code in with `tmux send-keys -t <session> '<code>' Enter`.
+
+Neither sets what `firebase-admin` scripts read with no key: Application
+Default Credentials are a third login.
+
+```sh
+gcloud auth application-default login --no-launch-browser
+gcloud auth application-default set-quota-project <project>   # it warns there is none
+```
+
 ## Sign-in
 
 ### Works in a browser, fails from a WhatsApp/Slack link
@@ -1027,6 +1046,18 @@ Read the end of the deploy output, not the summary. The per-function
 "Failed to update function X" list is printed for every function in the codebase
 when the operation aborts, including ones that already succeeded; the single line
 naming the actual cause is below it.
+
+### A callable answers 404 right after a deploy that succeeded
+`firebase deploy --only functions` printed `Deploy complete!`; probing every
+callable at once, one answered Google's HTML 404 page, and a minute later its
+own JSON `401`. It was the last callable to update, and its new revision was
+not routable yet at the instant the deploy returned. A 404 that soon is the
+rollout, not a missing function: retry it for a minute or two before calling
+the deploy broken, and confirm it updated:
+
+```sh
+gcloud functions describe <name> --region <region> --format="value(state,updateTime)"
+```
 
 ### Rules pass locally, queries fail in production
 The emulator enforces **no indexes at all**, so a query that passes every local
@@ -2541,6 +2572,19 @@ the rule is live.
 teal. Build toggles from `Pressable` and views you control. Assume any RNW
 control wrapping a platform widget may not be themeable, and confirm with a
 screenshot rather than trusting the props.
+
+### `accessibilityState` reaches the screen and never the DOM
+react-native-web 0.21 maps none of `accessibilityState.checked`, `.selected`
+or `.expanded` to ARIA: the rendered element carried the active background or
+thumb position and no state attribute, so a browser screen reader cannot tell
+on from off, and `getByRole('switch', { checked: true })` or `{ expanded: true }`
+finds nothing. Pass the ARIA prop as well, with the same value:
+
+```tsx
+<Pressable accessibilityRole="switch" accessibilityState={{ checked: on }} aria-checked={on} />
+<Pressable accessibilityRole="button" accessibilityState={{ selected }} aria-pressed={selected} />
+<Pressable accessibilityRole="button" accessibilityState={{ expanded }} aria-expanded={expanded} />
+```
 
 ### A raw DOM element inside your app renders in Times, at the wrong size
 The moment you mount something react-native-web did not render — a
@@ -4999,6 +5043,22 @@ happened, only about how long it took to give up. Polling instead for *"the
 counter increased"* fails immediately and names the event that never fired.
 **Wait for the thing that should occur; assert the arithmetic separately.**
 
+### A Maestro assertion fails, and the hierarchy dumped at failure matches it
+`assertVisible` gives up after about 17 s, and the screenshot and hierarchy
+Maestro saves are taken after that, so they can show the very element it
+could not find. On a CI Mac at a load average near 120, rows whose label
+waited on an uncached Firestore read answered at 20.3 s (the app's own
+slow-read log). For anything gated on a server read, wait explicitly:
+
+```yaml
+- extendedWaitUntil:
+    visible: "<row name>[\\s\\S]*: <loaded-only words>[\\s\\S]*"
+    timeout: 60000
+```
+
+Match words only the loaded state has (a row still loading must not match),
+so the wait still fails when the data never comes.
+
 ### Read production before designing a migration
 Querying the real data first turned a merge into a union: no two boards used the
 same label name and every embedded id was already globally unique, so each id
@@ -5808,7 +5868,9 @@ exists, read its config and comments before writing anything.**
 Firestore indexes report definitions with no build state; a `CREATING` index
 errors exactly like a missing one. Functions can be *created* while their Cloud
 Run service is not. **Probe the behaviour** — run the query, invoke the callable
-— rather than trusting a success message or a resource listing.
+— rather than trusting a success message or a resource listing. A probe
+taken the instant a functions deploy returns can fail the other way (see "A
+callable answers 404 right after a deploy that succeeded").
 
 ### For RULES specifically, you can read the deployed source back
 Probing the behaviour is the general remedy above, but a rules deploy resists it:
