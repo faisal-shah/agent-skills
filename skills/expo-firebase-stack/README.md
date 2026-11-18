@@ -33,14 +33,15 @@ afternoon each the first time:
   Android; "Make internal" greyed out on the consent screen.
 - **Emulators** — writes that succeed while the client insists the document does
   not exist; one snapshot then silence on React Native; Secret Manager 403s;
-  composite indexes that are only enforced in production.
+  composite indexes that are only enforced in production; a callable that
+  404s the instant its deploy returns.
 - **Expo / Metro** — a UI change that appears to do nothing because the dev
   server went stale; a clean build red-screening with another repo's module
   paths; `__DEV__` flipping to false in an export; a split web chunk that a
   deploy strands in every tab already open.
 - **react-native-web** — controls that ignore your theme, the missing dropdown
   primitive, emoji glyphs that ignore text colour, layout that must branch on
-  width rather than platform.
+  width rather than platform, accessibility state that never reaches the DOM.
 - **Rich text** — a web bundle carrying both of Lexical's builds; a
   react-native-enriched-html box born a line short.
 - **Observability** — test runs polluting the production error project;
@@ -48,7 +49,8 @@ afternoon each the first time:
   with committed native directories.
 - **Testing and seeding** — live queries returning empty before returning data,
   which makes idempotent seeds create duplicates and approval loops approve
-  nobody; Playwright auto-dismissing `window.confirm`.
+  nobody; Playwright auto-dismissing `window.confirm`; a Maestro assertion that
+  gives up before a loaded CI Mac's first server read answers.
 
 ## Installation
 
