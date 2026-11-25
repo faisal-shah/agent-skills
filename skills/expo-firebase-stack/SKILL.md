@@ -1342,6 +1342,16 @@ reported "not a member" for an ADMIN that way — the board was simply two secon
 behind the nav bar. If the answer decides what the test concludes, use
 `waitFor()` and treat the timeout as the negative result.
 
+### A reload times out on `networkidle` once anyone is signed in
+`page.reload({ waitUntil: 'networkidle' })` (or `waitForLoadState('networkidle')`)
+in Playwright runs out its whole timeout and fails the step, with nothing wrong
+on screen. A signed-in Firebase web app holds Firestore's listen channel open
+for as long as the session lasts, so the network never goes idle. The first
+`goto` before sign-in settles, which is why the same option looks fine at the
+top of the script. Wait for `load` and then for the element you are about to
+act on. A comment in one script saying so did not stop the next script from
+doing it; a unit test that scans every browser script for the option did.
+
 ### Sanitise client-side too, or the row renames itself
 If the server normalises a user-supplied name and the client does not, the value
 visibly CHANGES the moment the server writes it back — the file you attached as
