@@ -486,6 +486,33 @@ Two fixes do:
 - **Restart the emulators** instead of wiping them, when rebuilds are rare
   enough to afford the start-up. No delete events fire.
 
+### A deleted document grows a subcollection again, minutes after the cleanup
+
+A cleanup trigger on delete (`onDocumentDeleted` plus `recursiveDelete`, since
+Firestore does not cascade) empties a deleted document's subcollections, and a
+test shows them empty. Weeks later a scan of production finds documents under
+that same deleted path: a history line or two, written after the delete,
+which no query reaches (the parent is gone, so nothing lists it) and nothing
+will remove.
+
+The cleanup itself wrote to OTHER documents (unlinking children that pointed
+at the deleted one, say), and those writes fired a second trigger that
+mirrors a line back onto the related document: the one just deleted. A write
+under a missing parent succeeds; Firestore creates the subcollection document
+without the parent. Any trigger that writes under a document it did not fire
+on can do this whenever that document is deleted first.
+
+- **Check the parent exists before writing under it** in every trigger that
+  writes into another document's subcollection.
+- **Test the absence after the positive signal**: wait for the cleanup's own
+  last write (the child's unlink line), then list the deleted path's
+  subcollections and expect none. Checked right after the `recursiveDelete`,
+  the path is empty and the test passes with the bug in place.
+- **Scan for it**: `collection.listDocuments()` returns missing parents that
+  still have subcollections, which a query never does. Walk every collection
+  with it and report each existing document under a missing parent; run the
+  walk after any manual delete or migration in production.
+
 ### Two trigger runs in one second come out in either order
 
 A Firestore trigger writes a log line per change and takes its time from
